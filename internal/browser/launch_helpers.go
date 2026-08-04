@@ -53,6 +53,62 @@ func shouldRetryLaunch(err error) bool {
 		strings.Contains(msg, "EOF")
 }
 
+type codedError struct {
+	code string
+	err  error
+}
+
+func (e codedError) Error() string {
+	return e.err.Error()
+}
+
+func (e codedError) Unwrap() error {
+	return e.err
+}
+
+func (e codedError) ErrorCode() string {
+	return e.code
+}
+
+type errorCoder interface {
+	ErrorCode() string
+}
+
+func ErrorCode(err error) string {
+	var coded errorCoder
+	if errors.As(err, &coded) {
+		return coded.ErrorCode()
+	}
+	return ""
+}
+
+func shouldRetryLaunchAttempt(err error) bool {
+	if shouldRetryLaunch(err) {
+		return true
+	}
+	switch ErrorCode(err) {
+	case "BROWSER_BIND_FAILED", "BROWSER_CONNECT_TIMEOUT", "BROWSER_PROCESS_EXITED", "ENDPOINT_UNHEALTHY":
+		return true
+	default:
+		return false
+	}
+}
+
+func classifyEndpointHealthError(err error) string {
+	if err == nil {
+		return "ENDPOINT_UNHEALTHY"
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "timeout") || strings.Contains(msg, "timed out") || strings.Contains(msg, "deadline exceeded"):
+		return "BROWSER_CONNECT_TIMEOUT"
+	case strings.Contains(msg, "process exited") || strings.Contains(msg, "target closed") || strings.Contains(msg, "browser has been closed"):
+		return "BROWSER_PROCESS_EXITED"
+	default:
+		return "ENDPOINT_UNHEALTHY"
+	}
+}
+
 type noManagerRetryError struct {
 	err error
 }

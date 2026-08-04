@@ -152,11 +152,14 @@ func (m *Manager) launchFirefox(p *profile.Profile) (*Session, error) {
 	}
 
 	return &Session{
-		ID:        fmt.Sprintf("sess_%s", p.ID),
-		ProfileID: p.ID,
-		Engine:    "firefox",
-		Context:   ctx,
-		Page:      page,
-		relay:     relay,
+		ID:             fmt.Sprintf("sess_%s", p.ID),
+		ProfileID:      p.ID,
+		Engine:         "firefox",
+		Context:        ctx,
+		Page:           page,
+		relay:          relay,
+		ProfileDir:     p.ProfileDir,
+		UserDataDir:    userDataDir,
+		ExecutablePath: absPath,
 	}, nil
 }

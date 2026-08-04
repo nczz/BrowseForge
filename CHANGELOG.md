@@ -6,6 +6,13 @@ All notable changes should be documented here. This project follows semantic ver
 
 Nothing yet.
 
+## v1.10.3 - 2026-08-04
+
+### Fixed
+
+- Validated Playwright Bind endpoints before registering browser sessions so external AutoPost-style clients no longer receive unusable WebSocket endpoints after a launch, crash, or handshake failure.
+- Added structured endpoint health failure codes and diagnostic logs with session, profile, engine, endpoint, profile directory, user-data directory, executable path, timeout, and retry context.
+
 ## v1.10.2 - 2026-07-05
 
 ### Fixed

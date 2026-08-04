@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -33,7 +34,7 @@ func (h *handler) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, err := h.mgr.LaunchSession(p)
 	if err != nil {
-		writeError(w, 500, "LAUNCH_FAILED", err.Error())
+		writeSessionLaunchError(w, err)
 		return
 	}
 	writeJSON(w, 201, map[string]any{"data": map[string]any{
@@ -41,6 +42,26 @@ func (h *handler) createSession(w http.ResponseWriter, r *http.Request) {
 		"profile_id": sess.ProfileID,
 		"engine":     sess.Engine,
 	}})
+}
+
+func writeSessionLaunchError(w http.ResponseWriter, err error) {
+	code := "LAUNCH_FAILED"
+	if c := browserErrorCode(err); c != "" {
+		code = c
+	}
+	writeError(w, 500, code, err.Error())
+}
+
+type browserErrorCoder interface {
+	ErrorCode() string
+}
+
+func browserErrorCode(err error) string {
+	var coded browserErrorCoder
+	if errors.As(err, &coded) {
+		return coded.ErrorCode()
+	}
+	return ""
 }
 
 func (h *handler) listSessions(w http.ResponseWriter, r *http.Request) {
