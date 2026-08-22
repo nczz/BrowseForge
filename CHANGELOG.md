@@ -9,6 +9,7 @@ All notable changes should be documented here. This project follows semantic ver
 ### Fixed
 
 - Added Dashboard, REST, and MCP proxy-region controls and validation so BrowseForge Chromium profiles can configure required proxy persona metadata before launch.
+- Made the release preflight asset server avoid blocking host-name lookups before Docker build verification.
 
 ## v2.1.12 - 2026-08-04
 

@@ -187,13 +187,20 @@ if [[ "${SKIP_DOCKER:-}" != "1" ]]; then
   python3 - "$asset_root" "$port_file" <<'PY' &
 import functools
 import http.server
+import socketserver
 import sys
 
 root = sys.argv[1]
 port_file = sys.argv[2]
 
+class ReleaseAssetServer(http.server.ThreadingHTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = self.server_address[0]
+        self.server_port = self.server_address[1]
+
 handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=root)
-server = http.server.ThreadingHTTPServer(("0.0.0.0", 0), handler)
+server = ReleaseAssetServer(("0.0.0.0", 0), handler)
 with open(port_file, "w", encoding="utf-8") as fh:
     fh.write(str(server.server_port))
 server.serve_forever()
