@@ -152,6 +152,7 @@ button.danger{background:#f38ba8;color:#1e1e2e}
     <label>Proxy Port</label><input id="e-proxy-port" type="number">
     <label data-i18n="proxyUsername">Proxy Username</label><input id="e-proxy-user">
     <label data-i18n="proxyPassword">Proxy Password</label><input id="e-proxy-pass" type="password">
+    <label data-i18n="proxyRegion">Proxy Region</label><select id="e-proxy-region"></select>
     <div class="btn-row">
       <button onclick="hideEdit()" data-i18n="cancel">Cancel</button>
       <button class="primary" onclick="saveProfile()" data-i18n="save">Save</button>
@@ -176,6 +177,7 @@ button.danger{background:#f38ba8;color:#1e1e2e}
     <input id="f-proxy-port" placeholder="1080" type="number" style="margin-top:4px">
     <input id="f-proxy-user" data-i18n-placeholder="usernameOptional" placeholder="Username (optional)" style="margin-top:4px">
     <input id="f-proxy-pass" data-i18n-placeholder="passwordOptional" placeholder="Password (optional)" type="password" style="margin-top:4px">
+    <select id="f-proxy-region" style="margin-top:4px"></select>
     <div class="btn-row">
       <button onclick="hideCreate()" data-i18n="cancel">Cancel</button>
       <button class="primary" onclick="createProfile()" data-i18n="create">Create</button>
@@ -196,6 +198,7 @@ button.danger{background:#f38ba8;color:#1e1e2e}
     <label>Proxy Port</label><input id="g-proxy-port" type="number" placeholder="1080">
     <label data-i18n="proxyUsername">Proxy Username</label><input id="g-proxy-user">
     <label data-i18n="proxyPassword">Proxy Password</label><input id="g-proxy-pass" type="password">
+    <label data-i18n="proxyRegion">Proxy Region</label><select id="g-proxy-region"></select>
     <p style="font-size:12px;color:#666" data-i18n="groupProxyRestart">Group proxy changes apply to newly opened browsers. Close and reopen active browsers in the group to apply changes.</p>
     <div class="btn-row">
       <button onclick="hideGroupProxy()" data-i18n="cancel">Cancel</button>
@@ -261,6 +264,10 @@ const LOCALES = {
     noProxy: 'No Proxy',
     proxyUsername: 'Proxy Username',
     proxyPassword: 'Proxy Password',
+    proxyRegion: 'Proxy Region',
+    proxyRegionPlaceholder: 'Select a proxy region preset',
+    proxyRegionRequired: 'Select a Proxy Region preset for BrowseForge Chromium when a proxy is configured',
+    proxyRegionInvalid: 'Select one of the supported Proxy Region presets',
     proxyOptional: 'Proxy (optional)',
     proxyMode: 'Proxy Mode',
     proxyModeDefault: 'Default (profile overrides group)',
@@ -364,6 +371,10 @@ const LOCALES = {
     noProxy: '無 Proxy',
     proxyUsername: 'Proxy 帳號',
     proxyPassword: 'Proxy 密碼',
+    proxyRegion: 'Proxy 地區',
+    proxyRegionPlaceholder: '選擇 Proxy 地區預設',
+    proxyRegionRequired: 'BrowseForge Chromium 設定 Proxy 時必須選擇 Proxy 地區預設',
+    proxyRegionInvalid: '請選擇支援的 Proxy 地區預設',
     proxyOptional: 'Proxy (選填)',
     proxyMode: 'Proxy 模式',
     proxyModeDefault: '預設（Profile 優先於 Group）',
@@ -436,12 +447,318 @@ function t(key, vars = {}) {
   return value;
 }
 
+const PROXY_REGION_PRESETS = [
+  { value: "us-ny", label: "United States \u2014 New York" },
+  { value: "us-ca", label: "United States \u2014 California" },
+  { value: "us-tx", label: "United States \u2014 Texas" },
+  { value: "ca-on", label: "Canada \u2014 Ontario" },
+  { value: "ca-bc", label: "Canada \u2014 British Columbia" },
+  { value: "mx-cdmx", label: "Mexico \u2014 Mexico City" },
+  { value: "br-sao-paulo", label: "Brazil \u2014 S\u00e3o Paulo" },
+  { value: "gb-london", label: "United Kingdom \u2014 London" },
+  { value: "de-berlin", label: "Germany \u2014 Berlin" },
+  { value: "fr-paris", label: "France \u2014 Paris" },
+  { value: "nl-amsterdam", label: "Netherlands \u2014 Amsterdam" },
+  { value: "es-madrid", label: "Spain \u2014 Madrid" },
+  { value: "it-milan", label: "Italy \u2014 Milan" },
+  { value: "se-stockholm", label: "Sweden \u2014 Stockholm" },
+  { value: "ch-zurich", label: "Switzerland \u2014 Z\u00fcrich" },
+  { value: "pl-warsaw", label: "Poland \u2014 Warsaw" },
+  { value: "tw-taipei", label: "Taiwan \u2014 Taipei" },
+  { value: "jp-tokyo", label: "Japan \u2014 Tokyo" },
+  { value: "kr-seoul", label: "South Korea \u2014 Seoul" },
+  { value: "sg", label: "Singapore" },
+  { value: "hk", label: "Hong Kong" },
+  { value: "in-mumbai", label: "India \u2014 Mumbai" },
+  { value: "id-jakarta", label: "Indonesia \u2014 Jakarta" },
+  { value: "th-bangkok", label: "Thailand \u2014 Bangkok" },
+  { value: "my-kuala-lumpur", label: "Malaysia \u2014 Kuala Lumpur" },
+  { value: "ph-manila", label: "Philippines \u2014 Manila" },
+  { value: "vn-ho-chi-minh", label: "Vietnam \u2014 Ho Chi Minh City" },
+  { value: "au-sydney", label: "Australia \u2014 Sydney" },
+  { value: "nz-auckland", label: "New Zealand \u2014 Auckland" },
+  { value: "af", label: "Afghanistan" },
+  { value: "al", label: "Albania" },
+  { value: "dz", label: "Algeria" },
+  { value: "as", label: "American Samoa" },
+  { value: "ad", label: "Andorra" },
+  { value: "ao", label: "Angola" },
+  { value: "ai", label: "Anguilla" },
+  { value: "aq", label: "Antarctica" },
+  { value: "ag", label: "Antigua and Barbuda" },
+  { value: "ar", label: "Argentina" },
+  { value: "am", label: "Armenia" },
+  { value: "aw", label: "Aruba" },
+  { value: "au", label: "Australia" },
+  { value: "at", label: "Austria" },
+  { value: "az", label: "Azerbaijan" },
+  { value: "bs", label: "Bahamas" },
+  { value: "bh", label: "Bahrain" },
+  { value: "bd", label: "Bangladesh" },
+  { value: "bb", label: "Barbados" },
+  { value: "by", label: "Belarus" },
+  { value: "be", label: "Belgium" },
+  { value: "bz", label: "Belize" },
+  { value: "bj", label: "Benin" },
+  { value: "bm", label: "Bermuda" },
+  { value: "bt", label: "Bhutan" },
+  { value: "bo", label: "Bolivia, Plurinational State of" },
+  { value: "bq", label: "Bonaire, Sint Eustatius and Saba" },
+  { value: "ba", label: "Bosnia and Herzegovina" },
+  { value: "bw", label: "Botswana" },
+  { value: "bv", label: "Bouvet Island" },
+  { value: "br", label: "Brazil" },
+  { value: "io", label: "British Indian Ocean Territory" },
+  { value: "bn", label: "Brunei Darussalam" },
+  { value: "bg", label: "Bulgaria" },
+  { value: "bf", label: "Burkina Faso" },
+  { value: "bi", label: "Burundi" },
+  { value: "cv", label: "Cabo Verde" },
+  { value: "kh", label: "Cambodia" },
+  { value: "cm", label: "Cameroon" },
+  { value: "ca", label: "Canada" },
+  { value: "ky", label: "Cayman Islands" },
+  { value: "cf", label: "Central African Republic" },
+  { value: "td", label: "Chad" },
+  { value: "cl", label: "Chile" },
+  { value: "cn", label: "China" },
+  { value: "cx", label: "Christmas Island" },
+  { value: "cc", label: "Cocos (Keeling) Islands" },
+  { value: "co", label: "Colombia" },
+  { value: "km", label: "Comoros" },
+  { value: "cg", label: "Congo" },
+  { value: "cd", label: "Congo, Democratic Republic of the" },
+  { value: "ck", label: "Cook Islands" },
+  { value: "cr", label: "Costa Rica" },
+  { value: "hr", label: "Croatia" },
+  { value: "cu", label: "Cuba" },
+  { value: "cw", label: "Cura\u00e7ao" },
+  { value: "cy", label: "Cyprus" },
+  { value: "cz", label: "Czechia" },
+  { value: "ci", label: "C\u00f4te d'Ivoire" },
+  { value: "dk", label: "Denmark" },
+  { value: "dj", label: "Djibouti" },
+  { value: "dm", label: "Dominica" },
+  { value: "do", label: "Dominican Republic" },
+  { value: "ec", label: "Ecuador" },
+  { value: "eg", label: "Egypt" },
+  { value: "sv", label: "El Salvador" },
+  { value: "gq", label: "Equatorial Guinea" },
+  { value: "er", label: "Eritrea" },
+  { value: "ee", label: "Estonia" },
+  { value: "sz", label: "Eswatini" },
+  { value: "et", label: "Ethiopia" },
+  { value: "fk", label: "Falkland Islands (Malvinas)" },
+  { value: "fo", label: "Faroe Islands" },
+  { value: "fj", label: "Fiji" },
+  { value: "fi", label: "Finland" },
+  { value: "fr", label: "France" },
+  { value: "gf", label: "French Guiana" },
+  { value: "pf", label: "French Polynesia" },
+  { value: "tf", label: "French Southern Territories" },
+  { value: "ga", label: "Gabon" },
+  { value: "gm", label: "Gambia" },
+  { value: "ge", label: "Georgia" },
+  { value: "de", label: "Germany" },
+  { value: "gh", label: "Ghana" },
+  { value: "gi", label: "Gibraltar" },
+  { value: "gr", label: "Greece" },
+  { value: "gl", label: "Greenland" },
+  { value: "gd", label: "Grenada" },
+  { value: "gp", label: "Guadeloupe" },
+  { value: "gu", label: "Guam" },
+  { value: "gt", label: "Guatemala" },
+  { value: "gg", label: "Guernsey" },
+  { value: "gn", label: "Guinea" },
+  { value: "gw", label: "Guinea-Bissau" },
+  { value: "gy", label: "Guyana" },
+  { value: "ht", label: "Haiti" },
+  { value: "hm", label: "Heard Island and McDonald Islands" },
+  { value: "va", label: "Holy See" },
+  { value: "hn", label: "Honduras" },
+  { value: "hu", label: "Hungary" },
+  { value: "is", label: "Iceland" },
+  { value: "in", label: "India" },
+  { value: "id", label: "Indonesia" },
+  { value: "ir", label: "Iran, Islamic Republic of" },
+  { value: "iq", label: "Iraq" },
+  { value: "ie", label: "Ireland" },
+  { value: "im", label: "Isle of Man" },
+  { value: "il", label: "Israel" },
+  { value: "it", label: "Italy" },
+  { value: "jm", label: "Jamaica" },
+  { value: "jp", label: "Japan" },
+  { value: "je", label: "Jersey" },
+  { value: "jo", label: "Jordan" },
+  { value: "kz", label: "Kazakhstan" },
+  { value: "ke", label: "Kenya" },
+  { value: "ki", label: "Kiribati" },
+  { value: "kp", label: "Korea, Democratic People's Republic of" },
+  { value: "kr", label: "Korea, Republic of" },
+  { value: "kw", label: "Kuwait" },
+  { value: "kg", label: "Kyrgyzstan" },
+  { value: "la", label: "Lao People's Democratic Republic" },
+  { value: "lv", label: "Latvia" },
+  { value: "lb", label: "Lebanon" },
+  { value: "ls", label: "Lesotho" },
+  { value: "lr", label: "Liberia" },
+  { value: "ly", label: "Libya" },
+  { value: "li", label: "Liechtenstein" },
+  { value: "lt", label: "Lithuania" },
+  { value: "lu", label: "Luxembourg" },
+  { value: "mo", label: "Macao" },
+  { value: "mg", label: "Madagascar" },
+  { value: "mw", label: "Malawi" },
+  { value: "my", label: "Malaysia" },
+  { value: "mv", label: "Maldives" },
+  { value: "ml", label: "Mali" },
+  { value: "mt", label: "Malta" },
+  { value: "mh", label: "Marshall Islands" },
+  { value: "mq", label: "Martinique" },
+  { value: "mr", label: "Mauritania" },
+  { value: "mu", label: "Mauritius" },
+  { value: "yt", label: "Mayotte" },
+  { value: "mx", label: "Mexico" },
+  { value: "fm", label: "Micronesia, Federated States of" },
+  { value: "md", label: "Moldova, Republic of" },
+  { value: "mc", label: "Monaco" },
+  { value: "mn", label: "Mongolia" },
+  { value: "me", label: "Montenegro" },
+  { value: "ms", label: "Montserrat" },
+  { value: "ma", label: "Morocco" },
+  { value: "mz", label: "Mozambique" },
+  { value: "mm", label: "Myanmar" },
+  { value: "na", label: "Namibia" },
+  { value: "nr", label: "Nauru" },
+  { value: "np", label: "Nepal" },
+  { value: "nl", label: "Netherlands, Kingdom of the" },
+  { value: "nc", label: "New Caledonia" },
+  { value: "nz", label: "New Zealand" },
+  { value: "ni", label: "Nicaragua" },
+  { value: "ne", label: "Niger" },
+  { value: "ng", label: "Nigeria" },
+  { value: "nu", label: "Niue" },
+  { value: "nf", label: "Norfolk Island" },
+  { value: "mk", label: "North Macedonia" },
+  { value: "mp", label: "Northern Mariana Islands" },
+  { value: "no", label: "Norway" },
+  { value: "om", label: "Oman" },
+  { value: "pk", label: "Pakistan" },
+  { value: "pw", label: "Palau" },
+  { value: "ps", label: "Palestine, State of" },
+  { value: "pa", label: "Panama" },
+  { value: "pg", label: "Papua New Guinea" },
+  { value: "py", label: "Paraguay" },
+  { value: "pe", label: "Peru" },
+  { value: "ph", label: "Philippines" },
+  { value: "pn", label: "Pitcairn" },
+  { value: "pl", label: "Poland" },
+  { value: "pt", label: "Portugal" },
+  { value: "pr", label: "Puerto Rico" },
+  { value: "qa", label: "Qatar" },
+  { value: "ro", label: "Romania" },
+  { value: "ru", label: "Russian Federation" },
+  { value: "rw", label: "Rwanda" },
+  { value: "re", label: "R\u00e9union" },
+  { value: "bl", label: "Saint Barth\u00e9lemy" },
+  { value: "sh", label: "Saint Helena, Ascension and Tristan da Cunha" },
+  { value: "kn", label: "Saint Kitts and Nevis" },
+  { value: "lc", label: "Saint Lucia" },
+  { value: "mf", label: "Saint Martin (French part)" },
+  { value: "pm", label: "Saint Pierre and Miquelon" },
+  { value: "vc", label: "Saint Vincent and the Grenadines" },
+  { value: "ws", label: "Samoa" },
+  { value: "sm", label: "San Marino" },
+  { value: "st", label: "Sao Tome and Principe" },
+  { value: "sa", label: "Saudi Arabia" },
+  { value: "sn", label: "Senegal" },
+  { value: "rs", label: "Serbia" },
+  { value: "sc", label: "Seychelles" },
+  { value: "sl", label: "Sierra Leone" },
+  { value: "sx", label: "Sint Maarten (Dutch part)" },
+  { value: "sk", label: "Slovakia" },
+  { value: "si", label: "Slovenia" },
+  { value: "sb", label: "Solomon Islands" },
+  { value: "so", label: "Somalia" },
+  { value: "za", label: "South Africa" },
+  { value: "gs", label: "South Georgia and the South Sandwich Islands" },
+  { value: "ss", label: "South Sudan" },
+  { value: "es", label: "Spain" },
+  { value: "lk", label: "Sri Lanka" },
+  { value: "sd", label: "Sudan" },
+  { value: "sr", label: "Suriname" },
+  { value: "sj", label: "Svalbard and Jan Mayen" },
+  { value: "se", label: "Sweden" },
+  { value: "ch", label: "Switzerland" },
+  { value: "sy", label: "Syrian Arab Republic" },
+  { value: "tw", label: "Taiwan" },
+  { value: "tj", label: "Tajikistan" },
+  { value: "tz", label: "Tanzania, United Republic of" },
+  { value: "th", label: "Thailand" },
+  { value: "tl", label: "Timor-Leste" },
+  { value: "tg", label: "Togo" },
+  { value: "tk", label: "Tokelau" },
+  { value: "to", label: "Tonga" },
+  { value: "tt", label: "Trinidad and Tobago" },
+  { value: "tn", label: "Tunisia" },
+  { value: "tm", label: "Turkmenistan" },
+  { value: "tc", label: "Turks and Caicos Islands" },
+  { value: "tv", label: "Tuvalu" },
+  { value: "tr", label: "T\u00fcrkiye" },
+  { value: "ug", label: "Uganda" },
+  { value: "ua", label: "Ukraine" },
+  { value: "ae", label: "United Arab Emirates" },
+  { value: "gb", label: "United Kingdom of Great Britain and Northern Ireland" },
+  { value: "um", label: "United States Minor Outlying Islands" },
+  { value: "us", label: "United States of America" },
+  { value: "uy", label: "Uruguay" },
+  { value: "uz", label: "Uzbekistan" },
+  { value: "vu", label: "Vanuatu" },
+  { value: "ve", label: "Venezuela, Bolivarian Republic of" },
+  { value: "vn", label: "Viet Nam" },
+  { value: "vg", label: "Virgin Islands (British)" },
+  { value: "vi", label: "Virgin Islands (U.S.)" },
+  { value: "wf", label: "Wallis and Futuna" },
+  { value: "eh", label: "Western Sahara" },
+  { value: "ye", label: "Yemen" },
+  { value: "zm", label: "Zambia" },
+  { value: "zw", label: "Zimbabwe" },
+  { value: "ax", label: "\u00c5land Islands" }
+];
+
+function validProxyRegion(region) {
+  if (!region) return true;
+  const value = region.trim().toLowerCase();
+  return PROXY_REGION_PRESETS.some(p => p.value === value);
+}
+
+function validateProxyRegionInput(runtimeID, region, requiredForRuntime = false) {
+  const value = (region || '').trim();
+  if (requiredForRuntime && runtimeID === 'browseforge-chromium' && !value) return t('proxyRegionRequired');
+  if (value && !validProxyRegion(value)) return t('proxyRegionInvalid');
+  return '';
+}
+
+function refreshProxyRegionOptions() {
+  const optionLabel = p => p.value === 'tw' ? p.label : `${p.label} (${p.value})`;
+  const options = '<option value="">' + t('proxyRegionPlaceholder') + '</option>' +
+    PROXY_REGION_PRESETS.map(p => `<option value="${escAttr(p.value)}">${esc(optionLabel(p))}</option>`).join('');
+  ['e-proxy-region', 'f-proxy-region', 'g-proxy-region'].forEach(id => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = options;
+    select.value = PROXY_REGION_PRESETS.some(p => p.value === current) ? current : '';
+  });
+}
+
 function applyI18n() {
   document.documentElement.lang = locale;
   document.getElementById('langSelect').value = locale;
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
   refreshFilterControls();
+  refreshProxyRegionOptions();
   updateStatusText();
 }
 
@@ -865,6 +1182,7 @@ function showGroupProxy(name = '') {
   document.getElementById('g-proxy-port').value = proxy?.port || '';
   document.getElementById('g-proxy-user').value = proxy?.username || '';
   document.getElementById('g-proxy-pass').value = proxy?.password || '';
+  document.getElementById('g-proxy-region').value = proxy?.region || '';
   document.getElementById('groupProxyModal').classList.add('show');
 }
 function hideGroupProxy() { document.getElementById('groupProxyModal').classList.remove('show'); }
@@ -883,6 +1201,7 @@ async function editProfile(id) {
   document.getElementById('e-proxy-port').value = p.proxy?.port || '';
   document.getElementById('e-proxy-user').value = p.proxy?.username || '';
   document.getElementById('e-proxy-pass').value = p.proxy?.password || '';
+  document.getElementById('e-proxy-region').value = p.proxy?.region || '';
   document.getElementById('editModal').classList.add('show');
 }
 
@@ -895,7 +1214,11 @@ async function saveProfile() {
   };
   const proxyType = document.getElementById('e-proxy-type').value;
   if (proxyType) {
-    body.proxy = { type: proxyType, host: document.getElementById('e-proxy-host').value, port: parseInt(document.getElementById('e-proxy-port').value) || 1080, username: document.getElementById('e-proxy-user').value || undefined, password: document.getElementById('e-proxy-pass').value || undefined };
+    const proxyRegion = document.getElementById('e-proxy-region').value.trim();
+    const currentProfile = profiles.find(x => x.id === id);
+    const regionError = validateProxyRegionInput(currentProfile?.runtime_id, proxyRegion, true);
+    if (regionError) { toast(regionError); return; }
+    body.proxy = { type: proxyType, host: document.getElementById('e-proxy-host').value, port: parseInt(document.getElementById('e-proxy-port').value) || 1080, username: document.getElementById('e-proxy-user').value || undefined, password: document.getElementById('e-proxy-pass').value || undefined, region: proxyRegion || undefined };
   } else { body.proxy = null; }
   const d = await api('PUT', '/profiles/' + id, body);
   if (d.error) { toast('❌ ' + d.error.message); return; }
@@ -908,7 +1231,10 @@ async function createProfile() {
   const body = { name, runtime_id: document.getElementById('f-runtime').value, group: document.getElementById('f-group').value.trim() || undefined, tags: parseTags(document.getElementById('f-tags').value) };
   const proxyType = document.getElementById('f-proxy-type').value;
   if (proxyType) {
-    body.proxy = { type: proxyType, host: document.getElementById('f-proxy-host').value, port: parseInt(document.getElementById('f-proxy-port').value) || 1080, username: document.getElementById('f-proxy-user').value || undefined, password: document.getElementById('f-proxy-pass').value || undefined };
+    const proxyRegion = document.getElementById('f-proxy-region').value.trim();
+    const regionError = validateProxyRegionInput(document.getElementById('f-runtime').value, proxyRegion, true);
+    if (regionError) { toast(regionError); return; }
+    body.proxy = { type: proxyType, host: document.getElementById('f-proxy-host').value, port: parseInt(document.getElementById('f-proxy-port').value) || 1080, username: document.getElementById('f-proxy-user').value || undefined, password: document.getElementById('f-proxy-pass').value || undefined, region: proxyRegion || undefined };
   }
   const d = await api('POST', '/profiles', body);
   if (d.error) { toast('❌ ' + d.error.message); return; }
@@ -920,6 +1246,9 @@ async function saveGroupProxy() {
   if (!name) { toast(t('groupRequired')); return; }
   const proxyType = document.getElementById('g-proxy-type').value;
   if (!proxyType) { await clearGroupProxy(); return; }
+  const proxyRegion = document.getElementById('g-proxy-region').value.trim();
+  const regionError = validateProxyRegionInput('browseforge-chromium', proxyRegion, false);
+  if (regionError) { toast(regionError); return; }
   const body = {
     proxy_mode: document.getElementById('g-proxy-mode').value || 'default',
     proxy: {
@@ -927,7 +1256,8 @@ async function saveGroupProxy() {
       host: document.getElementById('g-proxy-host').value,
       port: parseInt(document.getElementById('g-proxy-port').value) || 1080,
       username: document.getElementById('g-proxy-user').value || undefined,
-      password: document.getElementById('g-proxy-pass').value || undefined
+      password: document.getElementById('g-proxy-pass').value || undefined,
+      region: proxyRegion || undefined
     }
   };
   const d = await api('PUT', '/groups/' + encodeURIComponent(name), body);

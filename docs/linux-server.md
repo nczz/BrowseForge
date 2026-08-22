@@ -18,10 +18,10 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.12
+  ghcr.io/nczz/browseforge:v2.1.13
 ```
 
-Pin a version tag such as `v2.1.12` for production deployments. Use `latest` only for short trials, because pulling or restarting later may upgrade unexpectedly.
+Pin a version tag such as `v2.1.13` for production deployments. Use `latest` only for short trials, because pulling or restarting later may upgrade unexpectedly.
 
 The quick command binds BrowseForge inside the container while defaulting `BROWSEFORGE_PUBLIC_BASE_URL` to `http://localhost:19280`, a fetchable origin for same-host agents. For remote agents, export `BROWSEFORGE_PUBLIC_BASE_URL` to the externally reachable server origin before running the command.
 
@@ -75,7 +75,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.12
+  ghcr.io/nczz/browseforge:v2.1.13
 ```
 
 Persisted paths:
@@ -95,7 +95,7 @@ Named Docker volumes also work, but host bind mounts are easier to inspect, copy
 ```yaml
 services:
   browseforge:
-    image: ghcr.io/nczz/browseforge:v2.1.12
+    image: ghcr.io/nczz/browseforge:v2.1.13
     ports:
       - "19280:19280"
       - "6901:6901"
@@ -146,7 +146,7 @@ Then open:
 ## Upgrade
 
 ```bash
-docker pull ghcr.io/nczz/browseforge:v2.1.12
+docker pull ghcr.io/nczz/browseforge:v2.1.13
 docker stop browseforge
 docker rm browseforge
 docker run -d --name browseforge \
@@ -159,7 +159,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.12
+  ghcr.io/nczz/browseforge:v2.1.13
 ```
 
 Profiles, tokens, downloaded browser engines, and logs remain in the host `./browseforge/` directory. Pulling a new image and recreating the container must reuse the same bind mounts.

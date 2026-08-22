@@ -95,7 +95,7 @@ func (m *Manager) launchChromium(p *profile.Profile) (*Session, error) {
 				return nil, err
 			}
 			if proxyRegion == "" {
-				return nil, fmt.Errorf("browseforge-chromium proxy_region is required when a proxy is configured")
+				return nil, fmt.Errorf("browseforge-chromium proxy_region is required when a proxy is configured; set proxy.region to a geographic label such as us-ny or tw-taipei via the Dashboard proxy settings, update_profile MCP tool, or PUT /api/profiles/{id}")
 			}
 		} else {
 			proxyRegion = strings.TrimSpace(proxy.Region)
@@ -1551,30 +1551,268 @@ func browseForgeNetworkProfile(proxyRegion string) browseForgeNativeNetwork {
 	return network
 }
 
+var browseForgeProxyRegionCountryCodes = map[string]string{
+	"af": "AF",
+	"al": "AL",
+	"dz": "DZ",
+	"as": "AS",
+	"ad": "AD",
+	"ao": "AO",
+	"ai": "AI",
+	"aq": "AQ",
+	"ag": "AG",
+	"ar": "AR",
+	"am": "AM",
+	"aw": "AW",
+	"au": "AU",
+	"at": "AT",
+	"az": "AZ",
+	"bs": "BS",
+	"bh": "BH",
+	"bd": "BD",
+	"bb": "BB",
+	"by": "BY",
+	"be": "BE",
+	"bz": "BZ",
+	"bj": "BJ",
+	"bm": "BM",
+	"bt": "BT",
+	"bo": "BO",
+	"bq": "BQ",
+	"ba": "BA",
+	"bw": "BW",
+	"bv": "BV",
+	"br": "BR",
+	"io": "IO",
+	"bn": "BN",
+	"bg": "BG",
+	"bf": "BF",
+	"bi": "BI",
+	"cv": "CV",
+	"kh": "KH",
+	"cm": "CM",
+	"ca": "CA",
+	"ky": "KY",
+	"cf": "CF",
+	"td": "TD",
+	"cl": "CL",
+	"cn": "CN",
+	"cx": "CX",
+	"cc": "CC",
+	"co": "CO",
+	"km": "KM",
+	"cg": "CG",
+	"cd": "CD",
+	"ck": "CK",
+	"cr": "CR",
+	"hr": "HR",
+	"cu": "CU",
+	"cw": "CW",
+	"cy": "CY",
+	"cz": "CZ",
+	"ci": "CI",
+	"dk": "DK",
+	"dj": "DJ",
+	"dm": "DM",
+	"do": "DO",
+	"ec": "EC",
+	"eg": "EG",
+	"sv": "SV",
+	"gq": "GQ",
+	"er": "ER",
+	"ee": "EE",
+	"sz": "SZ",
+	"et": "ET",
+	"fk": "FK",
+	"fo": "FO",
+	"fj": "FJ",
+	"fi": "FI",
+	"fr": "FR",
+	"gf": "GF",
+	"pf": "PF",
+	"tf": "TF",
+	"ga": "GA",
+	"gm": "GM",
+	"ge": "GE",
+	"de": "DE",
+	"gh": "GH",
+	"gi": "GI",
+	"gr": "GR",
+	"gl": "GL",
+	"gd": "GD",
+	"gp": "GP",
+	"gu": "GU",
+	"gt": "GT",
+	"gg": "GG",
+	"gn": "GN",
+	"gw": "GW",
+	"gy": "GY",
+	"ht": "HT",
+	"hm": "HM",
+	"va": "VA",
+	"hn": "HN",
+	"hk": "HK",
+	"hu": "HU",
+	"is": "IS",
+	"in": "IN",
+	"id": "ID",
+	"ir": "IR",
+	"iq": "IQ",
+	"ie": "IE",
+	"im": "IM",
+	"il": "IL",
+	"it": "IT",
+	"jm": "JM",
+	"jp": "JP",
+	"je": "JE",
+	"jo": "JO",
+	"kz": "KZ",
+	"ke": "KE",
+	"ki": "KI",
+	"kp": "KP",
+	"kr": "KR",
+	"kw": "KW",
+	"kg": "KG",
+	"la": "LA",
+	"lv": "LV",
+	"lb": "LB",
+	"ls": "LS",
+	"lr": "LR",
+	"ly": "LY",
+	"li": "LI",
+	"lt": "LT",
+	"lu": "LU",
+	"mo": "MO",
+	"mg": "MG",
+	"mw": "MW",
+	"my": "MY",
+	"mv": "MV",
+	"ml": "ML",
+	"mt": "MT",
+	"mh": "MH",
+	"mq": "MQ",
+	"mr": "MR",
+	"mu": "MU",
+	"yt": "YT",
+	"mx": "MX",
+	"fm": "FM",
+	"md": "MD",
+	"mc": "MC",
+	"mn": "MN",
+	"me": "ME",
+	"ms": "MS",
+	"ma": "MA",
+	"mz": "MZ",
+	"mm": "MM",
+	"na": "NA",
+	"nr": "NR",
+	"np": "NP",
+	"nl": "NL",
+	"nc": "NC",
+	"nz": "NZ",
+	"ni": "NI",
+	"ne": "NE",
+	"ng": "NG",
+	"nu": "NU",
+	"nf": "NF",
+	"mk": "MK",
+	"mp": "MP",
+	"no": "NO",
+	"om": "OM",
+	"pk": "PK",
+	"pw": "PW",
+	"ps": "PS",
+	"pa": "PA",
+	"pg": "PG",
+	"py": "PY",
+	"pe": "PE",
+	"ph": "PH",
+	"pn": "PN",
+	"pl": "PL",
+	"pt": "PT",
+	"pr": "PR",
+	"qa": "QA",
+	"ro": "RO",
+	"ru": "RU",
+	"rw": "RW",
+	"re": "RE",
+	"bl": "BL",
+	"sh": "SH",
+	"kn": "KN",
+	"lc": "LC",
+	"mf": "MF",
+	"pm": "PM",
+	"vc": "VC",
+	"ws": "WS",
+	"sm": "SM",
+	"st": "ST",
+	"sa": "SA",
+	"sn": "SN",
+	"rs": "RS",
+	"sc": "SC",
+	"sl": "SL",
+	"sg": "SG",
+	"sx": "SX",
+	"sk": "SK",
+	"si": "SI",
+	"sb": "SB",
+	"so": "SO",
+	"za": "ZA",
+	"gs": "GS",
+	"ss": "SS",
+	"es": "ES",
+	"lk": "LK",
+	"sd": "SD",
+	"sr": "SR",
+	"sj": "SJ",
+	"se": "SE",
+	"ch": "CH",
+	"sy": "SY",
+	"tw": "TW",
+	"tj": "TJ",
+	"tz": "TZ",
+	"th": "TH",
+	"tl": "TL",
+	"tg": "TG",
+	"tk": "TK",
+	"to": "TO",
+	"tt": "TT",
+	"tn": "TN",
+	"tm": "TM",
+	"tc": "TC",
+	"tv": "TV",
+	"tr": "TR",
+	"ug": "UG",
+	"ua": "UA",
+	"ae": "AE",
+	"gb": "GB",
+	"um": "UM",
+	"us": "US",
+	"uy": "UY",
+	"uz": "UZ",
+	"vu": "VU",
+	"ve": "VE",
+	"vn": "VN",
+	"vg": "VG",
+	"vi": "VI",
+	"wf": "WF",
+	"eh": "EH",
+	"ye": "YE",
+	"zm": "ZM",
+	"zw": "ZW",
+	"ax": "AX",
+}
+
 func countryCodeForProxyRegion(region string) string {
+	return browseForgeProxyRegionCountryCodes[proxyRegionCountryToken(region)]
+}
+
+func proxyRegionCountryToken(region string) string {
 	region = strings.ToLower(strings.TrimSpace(region))
-	switch {
-	case strings.HasPrefix(region, "us"):
-		return "US"
-	case strings.HasPrefix(region, "tw"):
-		return "TW"
-	case strings.HasPrefix(region, "jp"):
-		return "JP"
-	case strings.HasPrefix(region, "kr"):
-		return "KR"
-	case strings.HasPrefix(region, "sg"):
-		return "SG"
-	case strings.HasPrefix(region, "hk"):
-		return "HK"
-	case strings.HasPrefix(region, "de"):
-		return "DE"
-	case strings.HasPrefix(region, "fr"):
-		return "FR"
-	case strings.HasPrefix(region, "gb"), strings.HasPrefix(region, "uk"):
-		return "GB"
-	default:
-		return ""
+	if sep := strings.IndexAny(region, "-_"); sep >= 0 {
+		return region[:sep]
 	}
+	return region
 }
 
 func regionCodeForProxyRegion(region string) string {
@@ -1801,32 +2039,365 @@ func clampScreenAvail(avail, size int) int {
 	return avail
 }
 func fallbackGeoForProxyRegion(region string) (timezone, locale string) {
-	region = strings.ToLower(strings.TrimSpace(region))
-	switch {
-	case strings.HasPrefix(region, "us"):
+	switch proxyRegionCountryToken(region) {
+	case "us":
 		return "America/New_York", "en-US"
-	case strings.HasPrefix(region, "tw"):
-		return "Asia/Taipei", "zh-TW"
-	case strings.HasPrefix(region, "jp"):
-		return "Asia/Tokyo", "ja-JP"
-	case strings.HasPrefix(region, "kr"):
-		return "Asia/Seoul", "ko-KR"
-	case strings.HasPrefix(region, "sg"):
-		return "Asia/Singapore", "en-SG"
-	case strings.HasPrefix(region, "hk"):
-		return "Asia/Hong_Kong", "zh-HK"
-	case strings.HasPrefix(region, "de"):
-		return "Europe/Berlin", "de-DE"
-	case strings.HasPrefix(region, "fr"):
-		return "Europe/Paris", "fr-FR"
-	case strings.HasPrefix(region, "gb"), strings.HasPrefix(region, "uk"):
+	case "ca":
+		return "America/Toronto", "en-CA"
+	case "mx":
+		return "America/Mexico_City", "es-MX"
+	case "br":
+		return "America/Sao_Paulo", "pt-BR"
+	case "gb", "uk":
 		return "Europe/London", "en-GB"
+	case "de":
+		return "Europe/Berlin", "de-DE"
+	case "fr":
+		return "Europe/Paris", "fr-FR"
+	case "nl":
+		return "Europe/Amsterdam", "nl-NL"
+	case "es":
+		return "Europe/Madrid", "es-ES"
+	case "it":
+		return "Europe/Rome", "it-IT"
+	case "se":
+		return "Europe/Stockholm", "sv-SE"
+	case "ch":
+		return "Europe/Zurich", "de-CH"
+	case "pl":
+		return "Europe/Warsaw", "pl-PL"
+	case "tw":
+		return "Asia/Taipei", "zh-TW"
+	case "jp":
+		return "Asia/Tokyo", "ja-JP"
+	case "kr":
+		return "Asia/Seoul", "ko-KR"
+	case "sg":
+		return "Asia/Singapore", "en-SG"
+	case "hk":
+		return "Asia/Hong_Kong", "zh-HK"
+	case "in":
+		return "Asia/Kolkata", "en-IN"
+	case "id":
+		return "Asia/Jakarta", "id-ID"
+	case "th":
+		return "Asia/Bangkok", "th-TH"
+	case "my":
+		return "Asia/Kuala_Lumpur", "ms-MY"
+	case "ph":
+		return "Asia/Manila", "en-PH"
+	case "vn":
+		return "Asia/Ho_Chi_Minh", "vi-VN"
+	case "au":
+		return "Australia/Sydney", "en-AU"
+	case "nz":
+		return "Pacific/Auckland", "en-NZ"
 	default:
 		return "", ""
 	}
 }
 
-func sanitizeBrowseForgeProxyRegion(region string) (string, error) {
+type BrowseForgeProxyRegionPreset struct {
+	Value string
+	Label string
+}
+
+var browseForgeProxyRegionPresets = []BrowseForgeProxyRegionPreset{
+	{Value: "us-ny", Label: "United States \u2014 New York"},
+	{Value: "us-ca", Label: "United States \u2014 California"},
+	{Value: "us-tx", Label: "United States \u2014 Texas"},
+	{Value: "ca-on", Label: "Canada \u2014 Ontario"},
+	{Value: "ca-bc", Label: "Canada \u2014 British Columbia"},
+	{Value: "mx-cdmx", Label: "Mexico \u2014 Mexico City"},
+	{Value: "br-sao-paulo", Label: "Brazil \u2014 S\u00e3o Paulo"},
+	{Value: "gb-london", Label: "United Kingdom \u2014 London"},
+	{Value: "de-berlin", Label: "Germany \u2014 Berlin"},
+	{Value: "fr-paris", Label: "France \u2014 Paris"},
+	{Value: "nl-amsterdam", Label: "Netherlands \u2014 Amsterdam"},
+	{Value: "es-madrid", Label: "Spain \u2014 Madrid"},
+	{Value: "it-milan", Label: "Italy \u2014 Milan"},
+	{Value: "se-stockholm", Label: "Sweden \u2014 Stockholm"},
+	{Value: "ch-zurich", Label: "Switzerland \u2014 Z\u00fcrich"},
+	{Value: "pl-warsaw", Label: "Poland \u2014 Warsaw"},
+	{Value: "tw-taipei", Label: "Taiwan \u2014 Taipei"},
+	{Value: "jp-tokyo", Label: "Japan \u2014 Tokyo"},
+	{Value: "kr-seoul", Label: "South Korea \u2014 Seoul"},
+	{Value: "sg", Label: "Singapore"},
+	{Value: "hk", Label: "Hong Kong"},
+	{Value: "in-mumbai", Label: "India \u2014 Mumbai"},
+	{Value: "id-jakarta", Label: "Indonesia \u2014 Jakarta"},
+	{Value: "th-bangkok", Label: "Thailand \u2014 Bangkok"},
+	{Value: "my-kuala-lumpur", Label: "Malaysia \u2014 Kuala Lumpur"},
+	{Value: "ph-manila", Label: "Philippines \u2014 Manila"},
+	{Value: "vn-ho-chi-minh", Label: "Vietnam \u2014 Ho Chi Minh City"},
+	{Value: "au-sydney", Label: "Australia \u2014 Sydney"},
+	{Value: "nz-auckland", Label: "New Zealand \u2014 Auckland"},
+	{Value: "af", Label: "Afghanistan"},
+	{Value: "al", Label: "Albania"},
+	{Value: "dz", Label: "Algeria"},
+	{Value: "as", Label: "American Samoa"},
+	{Value: "ad", Label: "Andorra"},
+	{Value: "ao", Label: "Angola"},
+	{Value: "ai", Label: "Anguilla"},
+	{Value: "aq", Label: "Antarctica"},
+	{Value: "ag", Label: "Antigua and Barbuda"},
+	{Value: "ar", Label: "Argentina"},
+	{Value: "am", Label: "Armenia"},
+	{Value: "aw", Label: "Aruba"},
+	{Value: "au", Label: "Australia"},
+	{Value: "at", Label: "Austria"},
+	{Value: "az", Label: "Azerbaijan"},
+	{Value: "bs", Label: "Bahamas"},
+	{Value: "bh", Label: "Bahrain"},
+	{Value: "bd", Label: "Bangladesh"},
+	{Value: "bb", Label: "Barbados"},
+	{Value: "by", Label: "Belarus"},
+	{Value: "be", Label: "Belgium"},
+	{Value: "bz", Label: "Belize"},
+	{Value: "bj", Label: "Benin"},
+	{Value: "bm", Label: "Bermuda"},
+	{Value: "bt", Label: "Bhutan"},
+	{Value: "bo", Label: "Bolivia, Plurinational State of"},
+	{Value: "bq", Label: "Bonaire, Sint Eustatius and Saba"},
+	{Value: "ba", Label: "Bosnia and Herzegovina"},
+	{Value: "bw", Label: "Botswana"},
+	{Value: "bv", Label: "Bouvet Island"},
+	{Value: "br", Label: "Brazil"},
+	{Value: "io", Label: "British Indian Ocean Territory"},
+	{Value: "bn", Label: "Brunei Darussalam"},
+	{Value: "bg", Label: "Bulgaria"},
+	{Value: "bf", Label: "Burkina Faso"},
+	{Value: "bi", Label: "Burundi"},
+	{Value: "cv", Label: "Cabo Verde"},
+	{Value: "kh", Label: "Cambodia"},
+	{Value: "cm", Label: "Cameroon"},
+	{Value: "ca", Label: "Canada"},
+	{Value: "ky", Label: "Cayman Islands"},
+	{Value: "cf", Label: "Central African Republic"},
+	{Value: "td", Label: "Chad"},
+	{Value: "cl", Label: "Chile"},
+	{Value: "cn", Label: "China"},
+	{Value: "cx", Label: "Christmas Island"},
+	{Value: "cc", Label: "Cocos (Keeling) Islands"},
+	{Value: "co", Label: "Colombia"},
+	{Value: "km", Label: "Comoros"},
+	{Value: "cg", Label: "Congo"},
+	{Value: "cd", Label: "Congo, Democratic Republic of the"},
+	{Value: "ck", Label: "Cook Islands"},
+	{Value: "cr", Label: "Costa Rica"},
+	{Value: "hr", Label: "Croatia"},
+	{Value: "cu", Label: "Cuba"},
+	{Value: "cw", Label: "Cura\u00e7ao"},
+	{Value: "cy", Label: "Cyprus"},
+	{Value: "cz", Label: "Czechia"},
+	{Value: "ci", Label: "C\u00f4te d'Ivoire"},
+	{Value: "dk", Label: "Denmark"},
+	{Value: "dj", Label: "Djibouti"},
+	{Value: "dm", Label: "Dominica"},
+	{Value: "do", Label: "Dominican Republic"},
+	{Value: "ec", Label: "Ecuador"},
+	{Value: "eg", Label: "Egypt"},
+	{Value: "sv", Label: "El Salvador"},
+	{Value: "gq", Label: "Equatorial Guinea"},
+	{Value: "er", Label: "Eritrea"},
+	{Value: "ee", Label: "Estonia"},
+	{Value: "sz", Label: "Eswatini"},
+	{Value: "et", Label: "Ethiopia"},
+	{Value: "fk", Label: "Falkland Islands (Malvinas)"},
+	{Value: "fo", Label: "Faroe Islands"},
+	{Value: "fj", Label: "Fiji"},
+	{Value: "fi", Label: "Finland"},
+	{Value: "fr", Label: "France"},
+	{Value: "gf", Label: "French Guiana"},
+	{Value: "pf", Label: "French Polynesia"},
+	{Value: "tf", Label: "French Southern Territories"},
+	{Value: "ga", Label: "Gabon"},
+	{Value: "gm", Label: "Gambia"},
+	{Value: "ge", Label: "Georgia"},
+	{Value: "de", Label: "Germany"},
+	{Value: "gh", Label: "Ghana"},
+	{Value: "gi", Label: "Gibraltar"},
+	{Value: "gr", Label: "Greece"},
+	{Value: "gl", Label: "Greenland"},
+	{Value: "gd", Label: "Grenada"},
+	{Value: "gp", Label: "Guadeloupe"},
+	{Value: "gu", Label: "Guam"},
+	{Value: "gt", Label: "Guatemala"},
+	{Value: "gg", Label: "Guernsey"},
+	{Value: "gn", Label: "Guinea"},
+	{Value: "gw", Label: "Guinea-Bissau"},
+	{Value: "gy", Label: "Guyana"},
+	{Value: "ht", Label: "Haiti"},
+	{Value: "hm", Label: "Heard Island and McDonald Islands"},
+	{Value: "va", Label: "Holy See"},
+	{Value: "hn", Label: "Honduras"},
+	{Value: "hu", Label: "Hungary"},
+	{Value: "is", Label: "Iceland"},
+	{Value: "in", Label: "India"},
+	{Value: "id", Label: "Indonesia"},
+	{Value: "ir", Label: "Iran, Islamic Republic of"},
+	{Value: "iq", Label: "Iraq"},
+	{Value: "ie", Label: "Ireland"},
+	{Value: "im", Label: "Isle of Man"},
+	{Value: "il", Label: "Israel"},
+	{Value: "it", Label: "Italy"},
+	{Value: "jm", Label: "Jamaica"},
+	{Value: "jp", Label: "Japan"},
+	{Value: "je", Label: "Jersey"},
+	{Value: "jo", Label: "Jordan"},
+	{Value: "kz", Label: "Kazakhstan"},
+	{Value: "ke", Label: "Kenya"},
+	{Value: "ki", Label: "Kiribati"},
+	{Value: "kp", Label: "Korea, Democratic People's Republic of"},
+	{Value: "kr", Label: "Korea, Republic of"},
+	{Value: "kw", Label: "Kuwait"},
+	{Value: "kg", Label: "Kyrgyzstan"},
+	{Value: "la", Label: "Lao People's Democratic Republic"},
+	{Value: "lv", Label: "Latvia"},
+	{Value: "lb", Label: "Lebanon"},
+	{Value: "ls", Label: "Lesotho"},
+	{Value: "lr", Label: "Liberia"},
+	{Value: "ly", Label: "Libya"},
+	{Value: "li", Label: "Liechtenstein"},
+	{Value: "lt", Label: "Lithuania"},
+	{Value: "lu", Label: "Luxembourg"},
+	{Value: "mo", Label: "Macao"},
+	{Value: "mg", Label: "Madagascar"},
+	{Value: "mw", Label: "Malawi"},
+	{Value: "my", Label: "Malaysia"},
+	{Value: "mv", Label: "Maldives"},
+	{Value: "ml", Label: "Mali"},
+	{Value: "mt", Label: "Malta"},
+	{Value: "mh", Label: "Marshall Islands"},
+	{Value: "mq", Label: "Martinique"},
+	{Value: "mr", Label: "Mauritania"},
+	{Value: "mu", Label: "Mauritius"},
+	{Value: "yt", Label: "Mayotte"},
+	{Value: "mx", Label: "Mexico"},
+	{Value: "fm", Label: "Micronesia, Federated States of"},
+	{Value: "md", Label: "Moldova, Republic of"},
+	{Value: "mc", Label: "Monaco"},
+	{Value: "mn", Label: "Mongolia"},
+	{Value: "me", Label: "Montenegro"},
+	{Value: "ms", Label: "Montserrat"},
+	{Value: "ma", Label: "Morocco"},
+	{Value: "mz", Label: "Mozambique"},
+	{Value: "mm", Label: "Myanmar"},
+	{Value: "na", Label: "Namibia"},
+	{Value: "nr", Label: "Nauru"},
+	{Value: "np", Label: "Nepal"},
+	{Value: "nl", Label: "Netherlands, Kingdom of the"},
+	{Value: "nc", Label: "New Caledonia"},
+	{Value: "nz", Label: "New Zealand"},
+	{Value: "ni", Label: "Nicaragua"},
+	{Value: "ne", Label: "Niger"},
+	{Value: "ng", Label: "Nigeria"},
+	{Value: "nu", Label: "Niue"},
+	{Value: "nf", Label: "Norfolk Island"},
+	{Value: "mk", Label: "North Macedonia"},
+	{Value: "mp", Label: "Northern Mariana Islands"},
+	{Value: "no", Label: "Norway"},
+	{Value: "om", Label: "Oman"},
+	{Value: "pk", Label: "Pakistan"},
+	{Value: "pw", Label: "Palau"},
+	{Value: "ps", Label: "Palestine, State of"},
+	{Value: "pa", Label: "Panama"},
+	{Value: "pg", Label: "Papua New Guinea"},
+	{Value: "py", Label: "Paraguay"},
+	{Value: "pe", Label: "Peru"},
+	{Value: "ph", Label: "Philippines"},
+	{Value: "pn", Label: "Pitcairn"},
+	{Value: "pl", Label: "Poland"},
+	{Value: "pt", Label: "Portugal"},
+	{Value: "pr", Label: "Puerto Rico"},
+	{Value: "qa", Label: "Qatar"},
+	{Value: "ro", Label: "Romania"},
+	{Value: "ru", Label: "Russian Federation"},
+	{Value: "rw", Label: "Rwanda"},
+	{Value: "re", Label: "R\u00e9union"},
+	{Value: "bl", Label: "Saint Barth\u00e9lemy"},
+	{Value: "sh", Label: "Saint Helena, Ascension and Tristan da Cunha"},
+	{Value: "kn", Label: "Saint Kitts and Nevis"},
+	{Value: "lc", Label: "Saint Lucia"},
+	{Value: "mf", Label: "Saint Martin (French part)"},
+	{Value: "pm", Label: "Saint Pierre and Miquelon"},
+	{Value: "vc", Label: "Saint Vincent and the Grenadines"},
+	{Value: "ws", Label: "Samoa"},
+	{Value: "sm", Label: "San Marino"},
+	{Value: "st", Label: "Sao Tome and Principe"},
+	{Value: "sa", Label: "Saudi Arabia"},
+	{Value: "sn", Label: "Senegal"},
+	{Value: "rs", Label: "Serbia"},
+	{Value: "sc", Label: "Seychelles"},
+	{Value: "sl", Label: "Sierra Leone"},
+	{Value: "sx", Label: "Sint Maarten (Dutch part)"},
+	{Value: "sk", Label: "Slovakia"},
+	{Value: "si", Label: "Slovenia"},
+	{Value: "sb", Label: "Solomon Islands"},
+	{Value: "so", Label: "Somalia"},
+	{Value: "za", Label: "South Africa"},
+	{Value: "gs", Label: "South Georgia and the South Sandwich Islands"},
+	{Value: "ss", Label: "South Sudan"},
+	{Value: "es", Label: "Spain"},
+	{Value: "lk", Label: "Sri Lanka"},
+	{Value: "sd", Label: "Sudan"},
+	{Value: "sr", Label: "Suriname"},
+	{Value: "sj", Label: "Svalbard and Jan Mayen"},
+	{Value: "se", Label: "Sweden"},
+	{Value: "ch", Label: "Switzerland"},
+	{Value: "sy", Label: "Syrian Arab Republic"},
+	{Value: "tw", Label: "Taiwan"},
+	{Value: "tj", Label: "Tajikistan"},
+	{Value: "tz", Label: "Tanzania, United Republic of"},
+	{Value: "th", Label: "Thailand"},
+	{Value: "tl", Label: "Timor-Leste"},
+	{Value: "tg", Label: "Togo"},
+	{Value: "tk", Label: "Tokelau"},
+	{Value: "to", Label: "Tonga"},
+	{Value: "tt", Label: "Trinidad and Tobago"},
+	{Value: "tn", Label: "Tunisia"},
+	{Value: "tm", Label: "Turkmenistan"},
+	{Value: "tc", Label: "Turks and Caicos Islands"},
+	{Value: "tv", Label: "Tuvalu"},
+	{Value: "tr", Label: "T\u00fcrkiye"},
+	{Value: "ug", Label: "Uganda"},
+	{Value: "ua", Label: "Ukraine"},
+	{Value: "ae", Label: "United Arab Emirates"},
+	{Value: "gb", Label: "United Kingdom of Great Britain and Northern Ireland"},
+	{Value: "um", Label: "United States Minor Outlying Islands"},
+	{Value: "us", Label: "United States of America"},
+	{Value: "uy", Label: "Uruguay"},
+	{Value: "uz", Label: "Uzbekistan"},
+	{Value: "vu", Label: "Vanuatu"},
+	{Value: "ve", Label: "Venezuela, Bolivarian Republic of"},
+	{Value: "vn", Label: "Viet Nam"},
+	{Value: "vg", Label: "Virgin Islands (British)"},
+	{Value: "vi", Label: "Virgin Islands (U.S.)"},
+	{Value: "wf", Label: "Wallis and Futuna"},
+	{Value: "eh", Label: "Western Sahara"},
+	{Value: "ye", Label: "Yemen"},
+	{Value: "zm", Label: "Zambia"},
+	{Value: "zw", Label: "Zimbabwe"},
+	{Value: "ax", Label: "\u00c5land Islands"},
+}
+
+const BrowseForgeProxyRegionExamples = "us-ny, us-ca, us-tx, ca-on, ca-bc, mx-cdmx, br-sao-paulo, gb-london, de-berlin, fr-paris, nl-amsterdam, es-madrid, it-milan, se-stockholm, ch-zurich, pl-warsaw, tw-taipei, jp-tokyo, kr-seoul, sg, hk, in-mumbai, id-jakarta, th-bangkok, my-kuala-lumpur, ph-manila, vn-ho-chi-minh, au-sydney, nz-auckland, ... country presets such as za, ae, ar"
+
+func BrowseForgeProxyRegionPresets() []BrowseForgeProxyRegionPreset {
+	out := make([]BrowseForgeProxyRegionPreset, len(browseForgeProxyRegionPresets))
+	copy(out, browseForgeProxyRegionPresets)
+	return out
+}
+
+func BrowseForgeProxyRegionValues() []string {
+	out := make([]string, 0, len(browseForgeProxyRegionPresets))
+	for _, preset := range browseForgeProxyRegionPresets {
+		out = append(out, preset.Value)
+	}
+	return out
+}
+
+func NormalizeBrowseForgeProxyRegion(region string) (string, error) {
 	region = strings.ToLower(strings.TrimSpace(region))
 	if region == "" {
 		return "", nil
@@ -1843,7 +2414,16 @@ func sanitizeBrowseForgeProxyRegion(region string) (string, error) {
 	if region[0] == '-' || region[0] == '_' || region[len(region)-1] == '-' || region[len(region)-1] == '_' {
 		return "", fmt.Errorf("browseforge-chromium proxy_region must start and end with a letter or digit")
 	}
-	return region, nil
+	for _, preset := range browseForgeProxyRegionPresets {
+		if region == preset.Value {
+			return region, nil
+		}
+	}
+	return "", fmt.Errorf("browseforge-chromium proxy_region must be one of the supported presets: %s", BrowseForgeProxyRegionExamples)
+}
+
+func sanitizeBrowseForgeProxyRegion(region string) (string, error) {
+	return NormalizeBrowseForgeProxyRegion(region)
 }
 
 func fingerprintIntDefault(fp map[string]any, key string, fallback int) int {

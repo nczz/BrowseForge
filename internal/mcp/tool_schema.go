@@ -1,21 +1,27 @@
 package mcp
 
+import "browseforge/internal/browser"
+
 var tools = []map[string]any{
 	tool("list_runtimes", "List available browser runtime providers and capabilities. Use before creating profiles when runtime choice matters.", map[string]any{}),
+	toolWithRequired("list_proxy_regions", "List supported proxy.region presets with labels. Use this before setting BrowseForge Chromium proxy settings when the egress location is not already known; pass the returned value exactly as proxy.region.", map[string]any{}, []string{}),
 	toolWithRequired("list_profiles", "List available profiles before choosing a browser identity. Use this first when the user did not provide a profile_id.", map[string]any{
 		"group": prop("string", "Optional group filter."),
 		"tag":   prop("string", "Optional tag filter."),
 	}, []string{}),
-	tool("create_profile", "Create a new browser profile. Prefer existing profiles for logged-in or stateful tasks; create only when a fresh identity is needed.", map[string]any{
-		"name": prop("string", "Profile name."), "runtime_id": prop("string", "Runtime provider id such as camoufox or cloakbrowser."), "group": prop("string", "Optional group name."),
-	}),
+	toolWithRequired("create_profile", "Create a new browser profile. Prefer existing profiles for logged-in or stateful tasks; create only when a fresh identity is needed.", map[string]any{
+		"name":       prop("string", "Profile name."),
+		"runtime_id": prop("string", "Runtime provider id such as browseforge-chromium, camoufox, or cloakbrowser."),
+		"group":      prop("string", "Optional group name."),
+		"proxy":      proxyProp("Optional proxy settings. For browseforge-chromium, first call list_proxy_regions when unsure, then set proxy.region to one returned value. Example: {\"type\":\"http\",\"host\":\"proxy.example.com\",\"port\":1080,\"region\":\"tw\"}."),
+	}, []string{"name", "runtime_id"}),
 	tool("delete_profile", "Delete a profile and its stored data. Use only when explicitly requested; prefer close_browser/destroy_session for cleanup.", map[string]any{"profile_id": prop("string", "Profile ID.")}),
 	toolWithRequired("update_profile", "Update profile metadata or proxy settings. Close and reopen the browser if a runtime setting must take effect.", map[string]any{
 		"profile_id": prop("string", "Profile ID."),
 		"name":       prop("string", "Optional new name."),
 		"group":      prop("string", "Optional new group."),
-		"runtime_id": prop("string", "Optional runtime provider id such as camoufox or cloakbrowser."),
-		"proxy":      prop("object", "Optional proxy settings."),
+		"runtime_id": prop("string", "Optional runtime provider id such as browseforge-chromium, camoufox, or cloakbrowser."),
+		"proxy":      nullableProxyProp("Optional proxy settings. For browseforge-chromium, first call list_proxy_regions when unsure, then set proxy.region to one returned value. To remove proxy settings, pass proxy:null."),
 	}, []string{"profile_id"}),
 	tool("list_groups", "List group proxy policies with active_sessions and restart_required. Use before changing group-scoped proxy behavior.", map[string]any{}),
 	toolWithRequired("get_group", "Read one group proxy policy with active_sessions and restart_required. Group proxy mode default means profile proxy overrides group proxy; enforced means group proxy overrides profile proxy.", map[string]any{
@@ -24,7 +30,7 @@ var tools = []map[string]any{
 	toolWithRequired("update_group_proxy", "Set a group-scoped proxy policy. proxy_mode default means profile proxy overrides group proxy; enforced means group proxy overrides profile proxy. Check restart_required in the result before asking the operator to reopen browsers.", map[string]any{
 		"group":      prop("string", "Group name."),
 		"proxy_mode": prop("string", "default or enforced. Defaults to default."),
-		"proxy":      prop("object", "Proxy settings with type, host, port, and optional username/password."),
+		"proxy":      proxyProp("Proxy settings. For BrowseForge Chromium group users, first call list_proxy_regions when unsure, then set proxy.region to one returned value."),
 	}, []string{"group", "proxy"}),
 	toolWithRequired("clear_group_proxy", "Clear a group proxy policy. Check restart_required in the result before asking the operator to reopen browsers.", map[string]any{
 		"group": prop("string", "Group name."),
@@ -191,3 +197,34 @@ func toolWithRequired(name, desc string, props map[string]any, required []string
 }
 
 func prop(t, desc string) map[string]string { return map[string]string{"type": t, "description": desc} }
+func proxyProp(desc string) map[string]any {
+	return proxySchema(desc, false)
+}
+
+func nullableProxyProp(desc string) map[string]any {
+	return proxySchema(desc, true)
+}
+
+func proxySchema(desc string, nullable bool) map[string]any {
+	proxyType := any("object")
+	if nullable {
+		proxyType = []string{"object", "null"}
+	}
+	return map[string]any{
+		"type":        proxyType,
+		"description": desc,
+		"properties": map[string]any{
+			"type":     map[string]any{"type": "string", "enum": []string{"socks5", "http"}, "description": "Proxy type."},
+			"host":     prop("string", "Proxy host."),
+			"port":     prop("number", "Proxy port."),
+			"username": prop("string", "Optional proxy username."),
+			"password": prop("string", "Optional proxy password."),
+			"region": map[string]any{
+				"type":        "string",
+				"enum":        browser.BrowseForgeProxyRegionValues(),
+				"description": "BrowseForge Chromium proxy region preset. Choose a value returned by list_proxy_regions or from this enum; do not type arbitrary labels.",
+			},
+		},
+		"required": []string{"type", "host", "port"},
+	}
+}

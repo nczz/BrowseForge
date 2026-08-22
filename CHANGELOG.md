@@ -2,6 +2,14 @@
 
 All notable changes should be documented here. This project follows semantic version tags in the form `vX.Y.Z`.
 
+## Unreleased
+
+## v2.1.13 - 2026-08-22
+
+### Fixed
+
+- Added Dashboard, REST, and MCP proxy-region controls and validation so BrowseForge Chromium profiles can configure required proxy persona metadata before launch.
+
 ## v2.1.12 - 2026-08-04
 
 ### Fixed

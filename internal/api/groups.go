@@ -7,6 +7,7 @@ import (
 
 	"browseforge/internal/groups"
 	"browseforge/internal/profile"
+	"browseforge/internal/runtime"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -57,12 +58,30 @@ func (h *handler) upsertGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "MISSING_PROXY", "proxy is required; use DELETE /api/groups/{name}/proxy to clear a group proxy policy")
 		return
 	}
+	if err := h.validateGroupProxyRegion(chi.URLParam(r, "name"), req.Proxy); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_PROXY_REGION", err.Error())
+		return
+	}
 	g, err := h.groupStore.Upsert(chi.URLParam(r, "name"), req.Proxy, req.ProxyMode)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_GROUP", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": h.groupResponse(g)})
+}
+
+func (h *handler) validateGroupProxyRegion(groupName string, proxy *profile.ProxyConfig) error {
+	if proxy == nil || h.store == nil || h.mgr == nil {
+		return nil
+	}
+	for _, p := range h.store.List(groupName, "") {
+		draft := *p
+		desc, err := h.mgr.RuntimeRegistry().ApplyProfileDefaults(&draft)
+		if err == nil && desc.ID == runtime.BrowseForgeChromium {
+			return validateBrowseForgeProxyRegion(desc.ID, proxy)
+		}
+	}
+	return nil
 }
 
 func (h *handler) clearGroupProxy(w http.ResponseWriter, r *http.Request) {

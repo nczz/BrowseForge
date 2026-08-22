@@ -179,8 +179,9 @@ func TestSearchProviderURLs(t *testing.T) {
 func TestToolSchemasRequiredFields(t *testing.T) {
 	expected := map[string][]string{
 		"list_runtimes":      {},
+		"list_proxy_regions": {},
 		"list_profiles":      {},
-		"create_profile":     {"name", "runtime_id", "group"},
+		"create_profile":     {"name", "runtime_id"},
 		"delete_profile":     {"profile_id"},
 		"update_profile":     {"profile_id"},
 		"list_groups":        {},
@@ -254,6 +255,39 @@ func TestToolSchemasRequiredFields(t *testing.T) {
 				t.Fatalf("%s schema advertises deprecated profile engine", name)
 			}
 		}
+		if name == "create_profile" || name == "update_profile" || name == "update_group_proxy" {
+			proxy, ok := properties["proxy"].(map[string]any)
+			if !ok {
+				t.Fatalf("%s proxy schema type = %T", name, properties["proxy"])
+			}
+			proxyProperties, ok := proxy["properties"].(map[string]any)
+			if !ok {
+				t.Fatalf("%s proxy properties type = %T", name, proxy["properties"])
+			}
+			region, ok := proxyProperties["region"].(map[string]any)
+			if !ok {
+				t.Fatalf("%s proxy region schema type = %T", name, proxyProperties["region"])
+			}
+			enum, ok := region["enum"].([]string)
+			if !ok {
+				t.Fatalf("%s proxy region enum type = %T", name, region["enum"])
+			}
+			for _, want := range []string{"us-ny", "us-tx", "ca-on", "tw-taipei", "jp-tokyo", "gb-london", "au-sydney"} {
+				if !slices.Contains(enum, want) {
+					t.Fatalf("%s proxy region enum = %v, missing %s", name, enum, want)
+				}
+			}
+		}
+		if name == "update_profile" {
+			proxy, ok := properties["proxy"].(map[string]any)
+			if !ok {
+				t.Fatalf("update_profile proxy schema type = %T", properties["proxy"])
+			}
+			proxyType, ok := proxy["type"].([]string)
+			if !ok || !slices.Contains(proxyType, "null") {
+				t.Fatalf("update_profile proxy type = %#v, want nullable object", proxy["type"])
+			}
+		}
 		if name == "web_search" {
 			if _, ok := properties["engine"]; !ok {
 				t.Fatalf("web_search schema missing search engine property")
@@ -298,6 +332,41 @@ func TestToolListRuntimesReturnsRuntimeDescriptors(t *testing.T) {
 	}
 }
 
+func TestToolListProxyRegionsReturnsPresetValuesAndLabels(t *testing.T) {
+	s := NewServer(nil, nil, humanize.Config{}, nil, "", "test")
+
+	raw, mcpErr := s.toolListProxyRegions(map[string]any{})
+	if mcpErr != nil {
+		t.Fatalf("toolListProxyRegions error = %v", mcpErr)
+	}
+	res, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T", raw)
+	}
+	regions, ok := res["regions"].([]map[string]string)
+	if !ok {
+		t.Fatalf("regions type = %T", res["regions"])
+	}
+	if len(regions) < 200 {
+		t.Fatalf("regions len = %d, want global preset catalog", len(regions))
+	}
+	var sawTaiwan, sawTaipei bool
+	for _, region := range regions {
+		switch region["value"] {
+		case "tw":
+			sawTaiwan = region["label"] == "Taiwan"
+		case "tw-taipei":
+			sawTaipei = region["label"] == "Taiwan — Taipei"
+		}
+	}
+	if !sawTaiwan || !sawTaipei {
+		t.Fatalf("Taiwan presets not exposed correctly: sawTaiwan=%v sawTaipei=%v", sawTaiwan, sawTaipei)
+	}
+	if res["total"] != len(regions) {
+		t.Fatalf("total = %v, want %d", res["total"], len(regions))
+	}
+}
+
 func TestToolCreateProfileAcceptsRuntimeID(t *testing.T) {
 	enabled := true
 	store, err := profile.NewStore(t.TempDir())
@@ -325,6 +394,163 @@ func TestToolCreateProfileAcceptsRuntimeID(t *testing.T) {
 	}
 	if profiles[0].RuntimeID != "cloakbrowser" {
 		t.Fatalf("stored runtime_id = %q, want cloakbrowser", profiles[0].RuntimeID)
+	}
+}
+
+func TestToolCreateProfileStoresProxyRegion(t *testing.T) {
+	enabled := true
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	s := NewServer(store, testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"cloakbrowser": {Enabled: &enabled},
+	}}), humanize.Config{}, nil, "", "test")
+
+	raw, mcpErr := s.toolCreateProfile(map[string]any{
+		"name":       "Proxy Profile",
+		"runtime_id": "cloakbrowser",
+		"proxy": map[string]any{
+			"type":     " HTTP ",
+			"host":     " proxy.example.com ",
+			"port":     float64(8080),
+			"username": "user",
+			"password": "pass",
+			"region":   " us-ny ",
+		},
+	})
+	if mcpErr != nil {
+		t.Fatalf("toolCreateProfile error = %v", mcpErr)
+	}
+	if !strings.Contains(resultText(t, raw), "runtime: cloakbrowser") {
+		t.Fatalf("create_profile result = %#v", raw)
+	}
+	profiles := store.List("", "")
+	if len(profiles) != 1 {
+		t.Fatalf("stored profiles = %d, want 1", len(profiles))
+	}
+	got := profiles[0].Proxy
+	if got == nil || got.Type != "http" || got.Host != "proxy.example.com" || got.Port != 8080 || got.Username != "user" || got.Password != "pass" || got.Region != "us-ny" {
+		t.Fatalf("stored proxy = %+v", got)
+	}
+}
+
+func TestToolCreateProfileRejectsInvalidProxy(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	s := NewServer(store, testManagerWithRuntimeConfig(t, &config.Config{}), humanize.Config{}, nil, "", "test")
+
+	raw, mcpErr := s.toolCreateProfile(map[string]any{
+		"name":       "Invalid Proxy",
+		"runtime_id": "camoufox",
+		"proxy": map[string]any{
+			"type": "ssh",
+			"host": "proxy.example.com",
+			"port": float64(1080),
+		},
+	})
+	if raw != nil {
+		t.Fatalf("raw result = %#v, want nil", raw)
+	}
+	if mcpErr == nil || mcpErr.Code != -32602 || !strings.Contains(mcpErr.Message, "unsupported proxy type") {
+		t.Fatalf("mcpErr = %+v, want -32602 proxy validation", mcpErr)
+	}
+	if profiles := store.List("", ""); len(profiles) != 0 {
+		t.Fatalf("stored profiles = %d, want 0 after proxy rejection", len(profiles))
+	}
+}
+
+func TestToolCreateProfileRejectsInvalidBrowseForgeProxyRegion(t *testing.T) {
+	enabled := true
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	s := NewServer(store, testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}}), humanize.Config{}, nil, "", "test")
+
+	raw, mcpErr := s.toolCreateProfile(map[string]any{
+		"name":       "Bad Region",
+		"runtime_id": "browseforge-chromium",
+		"proxy": map[string]any{
+			"type":   "http",
+			"host":   "proxy.example.com",
+			"port":   float64(1080),
+			"region": "za-gauteng",
+		},
+	})
+	if raw != nil {
+		t.Fatalf("raw result = %#v, want nil", raw)
+	}
+	if mcpErr == nil || mcpErr.Code != -32602 || !strings.Contains(mcpErr.Message, "supported presets") {
+		t.Fatalf("mcpErr = %+v, want -32602 proxy_region validation", mcpErr)
+	}
+	if profiles := store.List("", ""); len(profiles) != 0 {
+		t.Fatalf("stored profiles = %d, want 0 after region rejection", len(profiles))
+	}
+}
+
+func TestToolCreateProfileNormalizesBrowseForgeProxyRegion(t *testing.T) {
+	enabled := true
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	s := NewServer(store, testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}}), humanize.Config{}, nil, "", "test")
+
+	raw, mcpErr := s.toolCreateProfile(map[string]any{
+		"name":       "Good Region",
+		"runtime_id": "browseforge-chromium",
+		"proxy": map[string]any{
+			"type":   "http",
+			"host":   "proxy.example.com",
+			"port":   float64(1080),
+			"region": " US-NY ",
+		},
+	})
+	if mcpErr != nil {
+		t.Fatalf("toolCreateProfile error = %v", mcpErr)
+	}
+	if !strings.Contains(resultText(t, raw), "runtime: browseforge-chromium") {
+		t.Fatalf("create_profile result = %#v", raw)
+	}
+	profiles := store.List("", "")
+	if len(profiles) != 1 || profiles[0].Proxy == nil || profiles[0].Proxy.Region != "us-ny" {
+		t.Fatalf("stored profiles = %+v", profiles)
+	}
+}
+
+func TestCreateProfileSchemaDoesNotRequireOptionalGroup(t *testing.T) {
+	var createProfile map[string]any
+	for _, tool := range tools {
+		if tool["name"] == "create_profile" {
+			createProfile = tool
+			break
+		}
+	}
+	if createProfile == nil {
+		t.Fatal("create_profile tool schema not found")
+	}
+	schema, ok := createProfile["inputSchema"].(map[string]any)
+	if !ok {
+		t.Fatalf("inputSchema type = %T", createProfile["inputSchema"])
+	}
+	required, ok := schema["required"].([]string)
+	if !ok {
+		t.Fatalf("required type = %T", schema["required"])
+	}
+	if slices.Contains(required, "group") {
+		t.Fatalf("required = %v, group must remain optional", required)
+	}
+	for _, want := range []string{"name", "runtime_id"} {
+		if !slices.Contains(required, want) {
+			t.Fatalf("required = %v, missing %s", required, want)
+		}
 	}
 }
 
@@ -385,6 +611,97 @@ func TestToolUpdateProfileRejectsDisabledRuntimeID(t *testing.T) {
 	}
 	if got.RuntimeID != "cloakbrowser" {
 		t.Fatalf("stored runtime_id = %q, want unchanged cloakbrowser", got.RuntimeID)
+	}
+}
+
+func TestToolUpdateProfileStoresAndClearsProxyRegion(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	p := &profile.Profile{Name: "Runtime Profile", RuntimeID: "camoufox"}
+	if err := store.Create(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	s := NewServer(store, testManagerWithRuntimeConfig(t, &config.Config{}), humanize.Config{}, nil, "", "test")
+
+	raw, mcpErr := s.toolUpdateProfile(map[string]any{
+		"profile_id": p.ID,
+		"proxy": map[string]any{
+			"type":   "socks5",
+			"host":   " proxy.example.com ",
+			"port":   float64(1080),
+			"region": " tw-taipei ",
+		},
+	})
+	if mcpErr != nil {
+		t.Fatalf("toolUpdateProfile set proxy error = %v", mcpErr)
+	}
+	if !strings.Contains(resultText(t, raw), "Updated profile") {
+		t.Fatalf("update_profile result = %#v", raw)
+	}
+	got, err := store.Get(p.ID)
+	if err != nil {
+		t.Fatalf("stored profile missing: %v", err)
+	}
+	if got.Proxy == nil || got.Proxy.Host != "proxy.example.com" || got.Proxy.Region != "tw-taipei" {
+		t.Fatalf("stored proxy = %+v", got.Proxy)
+	}
+
+	raw, mcpErr = s.toolUpdateProfile(map[string]any{
+		"profile_id": p.ID,
+		"proxy":      nil,
+	})
+	if mcpErr != nil {
+		t.Fatalf("toolUpdateProfile clear proxy error = %v", mcpErr)
+	}
+	if !strings.Contains(resultText(t, raw), "Updated profile") {
+		t.Fatalf("clear proxy result = %#v", raw)
+	}
+	got, err = store.Get(p.ID)
+	if err != nil {
+		t.Fatalf("stored profile missing after clear: %v", err)
+	}
+	if got.Proxy != nil {
+		t.Fatalf("stored proxy after clear = %+v, want nil", got.Proxy)
+	}
+}
+
+func TestToolUpdateProfileRejectsInvalidBrowseForgeProxyRegion(t *testing.T) {
+	enabled := true
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	p := &profile.Profile{Name: "Runtime Profile", RuntimeID: "browseforge-chromium"}
+	if err := store.Create(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	s := NewServer(store, testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}}), humanize.Config{}, nil, "", "test")
+
+	raw, mcpErr := s.toolUpdateProfile(map[string]any{
+		"profile_id": p.ID,
+		"proxy": map[string]any{
+			"type":   "socks5",
+			"host":   "proxy.example.com",
+			"port":   float64(1080),
+			"region": "192_0_2_1",
+		},
+	})
+	if raw != nil {
+		t.Fatalf("raw result = %#v, want nil", raw)
+	}
+	if mcpErr == nil || mcpErr.Code != -32602 || !strings.Contains(mcpErr.Message, "supported presets") {
+		t.Fatalf("mcpErr = %+v, want -32602 proxy_region validation", mcpErr)
+	}
+	got, err := store.Get(p.ID)
+	if err != nil {
+		t.Fatalf("stored profile missing: %v", err)
+	}
+	if got.Proxy != nil {
+		t.Fatalf("stored proxy after rejected update = %+v, want nil", got.Proxy)
 	}
 }
 
@@ -616,9 +933,10 @@ func TestToolUpdateGroupProxyReportsRestartOnlyWhenActive(t *testing.T) {
 		"group":      "Client A",
 		"proxy_mode": groups.ProxyModeEnforced,
 		"proxy": map[string]any{
-			"type": "socks5",
-			"host": "proxy.example.com",
-			"port": float64(1080),
+			"type":   "socks5",
+			"host":   "proxy.example.com",
+			"port":   float64(1080),
+			"region": " us-ny ",
 		},
 	})
 	if mcpErr != nil {
@@ -635,8 +953,119 @@ func TestToolUpdateGroupProxyReportsRestartOnlyWhenActive(t *testing.T) {
 		t.Fatalf("active_sessions = %v", res["active_sessions"])
 	}
 	g, ok := res["group"].(*groups.Group)
-	if !ok || g.Proxy == nil || g.Proxy.Host != "proxy.example.com" {
+	if !ok || g.Proxy == nil || g.Proxy.Host != "proxy.example.com" || g.Proxy.Region != "us-ny" {
 		t.Fatalf("group result = %#v", res["group"])
+	}
+}
+
+func TestToolCreateProfileRejectsGroupProxyMissingBrowseForgeRegion(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	groupStore, err := groups.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewGroupStore: %v", err)
+	}
+	if _, err := groupStore.Upsert("Client A", &profile.ProxyConfig{Type: "http", Host: "proxy.example.com", Port: 1080}, groups.ProxyModeDefault); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	enabled := true
+	s := NewServer(store, testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}}), humanize.Config{}, nil, "", "test", groupStore)
+
+	raw, mcpErr := s.toolCreateProfile(map[string]any{
+		"name":       "Grouped BFC",
+		"runtime_id": "browseforge-chromium",
+		"group":      "Client A",
+	})
+	if raw != nil {
+		t.Fatalf("raw result = %#v, want nil", raw)
+	}
+	if mcpErr == nil || mcpErr.Code != -32602 || !strings.Contains(mcpErr.Message, "proxy_region is required") {
+		t.Fatalf("mcpErr = %+v, want -32602 proxy_region required", mcpErr)
+	}
+	if profiles := store.List("", ""); len(profiles) != 0 {
+		t.Fatalf("stored profiles = %d, want 0 after group proxy rejection", len(profiles))
+	}
+}
+
+func TestToolUpdateProfileRejectsGroupProxyMissingBrowseForgeRegion(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	groupStore, err := groups.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewGroupStore: %v", err)
+	}
+	if _, err := groupStore.Upsert("Client A", &profile.ProxyConfig{Type: "http", Host: "proxy.example.com", Port: 1080}, groups.ProxyModeDefault); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	p := &profile.Profile{Name: "BFC", RuntimeID: "browseforge-chromium"}
+	if err := store.Create(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	enabled := true
+	s := NewServer(store, testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}}), humanize.Config{}, nil, "", "test", groupStore)
+
+	raw, mcpErr := s.toolUpdateProfile(map[string]any{
+		"profile_id": p.ID,
+		"group":      "Client A",
+	})
+	if raw != nil {
+		t.Fatalf("raw result = %#v, want nil", raw)
+	}
+	if mcpErr == nil || mcpErr.Code != -32602 || !strings.Contains(mcpErr.Message, "proxy_region is required") {
+		t.Fatalf("mcpErr = %+v, want -32602 proxy_region required", mcpErr)
+	}
+	got, err := store.Get(p.ID)
+	if err != nil {
+		t.Fatalf("stored profile missing: %v", err)
+	}
+	if got.Group != "" {
+		t.Fatalf("stored group = %q, want unchanged empty group", got.Group)
+	}
+}
+
+func TestToolUpdateGroupProxyRejectsMissingRegionForBrowseForgeProfiles(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	groupStore, err := groups.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewGroupStore: %v", err)
+	}
+	p := &profile.Profile{Name: "Grouped BFC", RuntimeID: "browseforge-chromium", Group: "Client A"}
+	if err := store.Create(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	enabled := true
+	s := NewServer(store, testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}}), humanize.Config{}, nil, "", "test", groupStore)
+
+	raw, mcpErr := s.toolUpdateGroupProxy(map[string]any{
+		"group":      "Client A",
+		"proxy_mode": groups.ProxyModeEnforced,
+		"proxy": map[string]any{
+			"type": "http",
+			"host": "proxy.example.com",
+			"port": float64(1080),
+		},
+	})
+	if raw != nil {
+		t.Fatalf("raw result = %#v, want nil", raw)
+	}
+	if mcpErr == nil || mcpErr.Code != -32602 || !strings.Contains(mcpErr.Message, "proxy_region is required") {
+		t.Fatalf("mcpErr = %+v, want -32602 proxy_region required", mcpErr)
+	}
+	if groups := groupStore.List(); len(groups) != 0 {
+		t.Fatalf("stored groups = %+v, want none after rejected group proxy", groups)
 	}
 }
 

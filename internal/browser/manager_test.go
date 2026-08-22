@@ -1602,6 +1602,49 @@ func TestLaunchChromiumRejectsInvalidBrowseForgeProxyRegionBeforeLaunch(t *testi
 	}
 }
 
+func TestLaunchChromiumRejectsUnsupportedBrowseForgeProxyRegionBeforeLaunch(t *testing.T) {
+	enabled := true
+	browserType := &capturingBrowserType{t: t, launchErr: errors.New("should not launch")}
+	cfg := &config.Config{
+		Runtimes: map[string]config.RuntimeConfig{
+			"browseforge-chromium": {
+				BinaryPath: filepath.Join(t.TempDir(), "browseforge-chromium"),
+				Enabled:    &enabled,
+				Settings: &config.CloakBrowserConfig{
+					TargetPlatformPolicy: "allow",
+				},
+			},
+		},
+	}
+	manager := &Manager{
+		cfg:      cfg,
+		runtimes: bfruntime.NewRegistry(cfg),
+		pw:       &playwright.Playwright{Chromium: browserType},
+		sessions: make(map[string]*Session),
+	}
+
+	_, err := manager.launchChromium(&profile.Profile{
+		ID:        "unsupported-proxy-region",
+		RuntimeID: "browseforge-chromium",
+		Proxy: &profile.ProxyConfig{
+			Type:   "http",
+			Host:   "127.0.0.1",
+			Port:   1,
+			Region: "za-gauteng",
+		},
+		ProfileDir: t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("expected unsupported proxy region to fail")
+	}
+	if !strings.Contains(err.Error(), "supported presets") {
+		t.Fatalf("error = %q, want proxy_region preset validation", err.Error())
+	}
+	if browserType.calls != 0 {
+		t.Fatalf("launch calls = %d, want 0", browserType.calls)
+	}
+}
+
 func TestLaunchChromiumRequiresBrowseForgeProxyRegionBeforeLaunch(t *testing.T) {
 	enabled := true
 	browserType := &capturingBrowserType{t: t, launchErr: errors.New("should not launch")}

@@ -14,6 +14,7 @@ import (
 	"browseforge/internal/groups"
 	"browseforge/internal/humanize"
 	"browseforge/internal/profile"
+	bfruntime "browseforge/internal/runtime"
 	"browseforge/internal/workflow"
 
 	"github.com/mxschmitt/playwright-go"
@@ -189,6 +190,8 @@ func (s *Server) handleToolsCall(params json.RawMessage, r *http.Request) (any, 
 	switch call.Name {
 	case "list_runtimes":
 		return s.toolListRuntimes(call.Arguments)
+	case "list_proxy_regions":
+		return s.toolListProxyRegions(call.Arguments)
 	case "list_profiles":
 		return s.toolListProfiles(call.Arguments)
 	case "create_profile":
@@ -281,6 +284,17 @@ func (s *Server) handleToolsCall(params json.RawMessage, r *http.Request) (any, 
 func (s *Server) toolListRuntimes(args map[string]any) (any, *mcpError) {
 	return textResult(mustJSON(s.mgr.RuntimeRegistry().List())), nil
 }
+func (s *Server) toolListProxyRegions(args map[string]any) (any, *mcpError) {
+	presets := browser.BrowseForgeProxyRegionPresets()
+	regions := make([]map[string]string, 0, len(presets))
+	for _, preset := range presets {
+		regions = append(regions, map[string]string{"value": preset.Value, "label": preset.Label})
+	}
+	res := textResult(mustJSON(regions))
+	res["regions"] = regions
+	res["total"] = len(regions)
+	return res, nil
+}
 
 func (s *Server) toolListProfiles(args map[string]any) (any, *mcpError) {
 	group, _ := args["group"].(string)
@@ -305,12 +319,28 @@ func (s *Server) toolCreateProfile(args map[string]any) (any, *mcpError) {
 	group, _ := args["group"].(string)
 
 	p := &profile.Profile{Name: name, RuntimeID: runtimeID, Group: group}
+
+	if proxyRaw, ok := args["proxy"]; ok && proxyRaw != nil {
+		proxyMap, ok := proxyRaw.(map[string]any)
+		if !ok {
+			return nil, newError(-32602, "proxy must be an object")
+		}
+		pc, err := parseProxyConfig(proxyMap)
+		if err != nil {
+			return nil, newError(-32602, err.Error())
+		}
+		p.Proxy = pc
+	}
+
 	desc, err := s.mgr.RuntimeRegistry().ApplyProfileDefaults(p)
 	if err != nil {
 		return nil, newError(-32602, err.Error())
 	}
 	if !desc.Enabled {
 		return nil, newError(-32602, fmt.Sprintf("runtime %q is disabled", desc.ID))
+	}
+	if err := s.validateBrowseForgeProfileProxy(desc.ID, p); err != nil {
+		return nil, newError(-32602, err.Error())
 	}
 	if err := s.store.Create(p); err != nil {
 		return nil, newError(-32000, err.Error())
@@ -348,25 +378,56 @@ func (s *Server) toolUpdateProfile(args map[string]any) (any, *mcpError) {
 		return nil, newError(-32602, "engine was removed in v2; use runtime_id")
 	}
 	if v, ok := args["proxy"]; ok {
-		updates["proxy"] = v
+		if v == nil {
+			updates["proxy"] = nil
+		} else {
+			proxyMap, ok := v.(map[string]any)
+			if !ok {
+				return nil, newError(-32602, "proxy must be an object")
+			}
+			proxyCfg, err := parseProxyConfig(proxyMap)
+			if err != nil {
+				return nil, newError(-32602, err.Error())
+			}
+			updates["proxy"] = proxyCfg
+		}
 	}
-	if _, runtimeChanged := updates["runtime_id"]; runtimeChanged {
+	if _, runtimeChanged := updates["runtime_id"]; runtimeChanged || hasProxyUpdate(args) || hasGroupUpdate(args) {
 		current, err := s.store.Get(id)
 		if err != nil {
 			return nil, newError(-32000, err.Error())
 		}
 		draft := *current
-		v, ok := updates["runtime_id"].(string)
-		if !ok {
-			return nil, newError(-32602, "runtime_id must be a string")
+		if runtimeChanged {
+			v, ok := updates["runtime_id"].(string)
+			if !ok {
+				return nil, newError(-32602, "runtime_id must be a string")
+			}
+			draft.RuntimeID = v
 		}
-		draft.RuntimeID = v
+		if _, groupChanged := updates["group"]; groupChanged {
+			v, ok := updates["group"].(string)
+			if !ok {
+				return nil, newError(-32602, "group must be a string")
+			}
+			draft.Group = v
+		}
+		if proxyUpdate, ok := updates["proxy"]; ok {
+			if proxyUpdate == nil {
+				draft.Proxy = nil
+			} else {
+				draft.Proxy = proxyUpdate.(*profile.ProxyConfig)
+			}
+		}
 		desc, err := s.mgr.RuntimeRegistry().ApplyProfileDefaults(&draft)
 		if err != nil {
 			return nil, newError(-32602, err.Error())
 		}
-		if !desc.Enabled {
+		if runtimeChanged && !desc.Enabled {
 			return nil, newError(-32602, fmt.Sprintf("runtime %q is disabled", desc.ID))
+		}
+		if err := s.validateBrowseForgeProfileProxy(desc.ID, &draft); err != nil {
+			return nil, newError(-32602, err.Error())
 		}
 		updates["runtime_id"] = draft.RuntimeID
 	}
@@ -428,6 +489,9 @@ func (s *Server) toolUpdateGroupProxy(args map[string]any) (any, *mcpError) {
 		return nil, newError(-32602, err.Error())
 	}
 	mode, _ := args["proxy_mode"].(string)
+	if err := s.validateGroupProxyRegion(name, proxyCfg); err != nil {
+		return nil, newError(-32602, err.Error())
+	}
 	g, err := s.groupStore.Upsert(name, proxyCfg, mode)
 	if err != nil {
 		return nil, newError(-32602, err.Error())
@@ -549,22 +613,93 @@ func parseProxyConfig(raw map[string]any) (*profile.ProxyConfig, error) {
 	port := 0
 	switch v := raw["port"].(type) {
 	case float64:
+		if v != float64(int(v)) {
+			return nil, fmt.Errorf("proxy.port must be an integer")
+		}
 		port = int(v)
 	case int:
 		port = v
 	}
 	username, _ := raw["username"].(string)
 	password, _ := raw["password"].(string)
+	region, _ := raw["region"].(string)
+	proxyType = strings.TrimSpace(strings.ToLower(proxyType))
+	host = strings.TrimSpace(host)
+	region = strings.TrimSpace(region)
 	if proxyType == "" {
 		return nil, fmt.Errorf("proxy.type is required")
+	}
+	if proxyType != "socks5" && proxyType != "http" {
+		return nil, fmt.Errorf("unsupported proxy type %q", proxyType)
 	}
 	if host == "" {
 		return nil, fmt.Errorf("proxy.host is required")
 	}
-	if port <= 0 {
-		return nil, fmt.Errorf("proxy.port is required")
+	if port <= 0 || port > 65535 {
+		return nil, fmt.Errorf("proxy.port must be between 1 and 65535")
 	}
-	return &profile.ProxyConfig{Type: proxyType, Host: host, Port: port, Username: username, Password: password}, nil
+	return &profile.ProxyConfig{Type: proxyType, Host: host, Port: port, Username: username, Password: password, Region: region}, nil
+}
+
+func hasProxyUpdate(args map[string]any) bool {
+	_, ok := args["proxy"]
+	return ok
+}
+
+func hasGroupUpdate(args map[string]any) bool {
+	_, ok := args["group"]
+	return ok
+}
+
+func validateBrowseForgeProxyRegion(runtimeID bfruntime.ID, proxy *profile.ProxyConfig) error {
+	if runtimeID != bfruntime.BrowseForgeChromium || proxy == nil {
+		return nil
+	}
+	normalized, err := browser.NormalizeBrowseForgeProxyRegion(proxy.Region)
+	if err != nil {
+		return err
+	}
+	if normalized == "" {
+		return fmt.Errorf("browseforge-chromium proxy_region is required when a proxy is configured; use a redacted geographic label such as %s", browser.BrowseForgeProxyRegionExamples)
+	}
+	proxy.Region = normalized
+	return nil
+}
+
+func (s *Server) validateBrowseForgeProfileProxy(runtimeID bfruntime.ID, p *profile.Profile) error {
+	if runtimeID != bfruntime.BrowseForgeChromium || p == nil {
+		return nil
+	}
+	if p.Proxy != nil {
+		if err := validateBrowseForgeProxyRegion(runtimeID, p.Proxy); err != nil {
+			return err
+		}
+	}
+	effective := groups.EffectiveProxy{Source: "none"}
+	if s.groupStore != nil {
+		effective = s.groupStore.EffectiveProxy(p)
+	} else if p.Proxy != nil && strings.TrimSpace(p.Proxy.Host) != "" {
+		effective = groups.EffectiveProxy{Proxy: p.Proxy, Source: "profile"}
+	}
+	if effective.Proxy == nil || effective.Source == "profile" {
+		return nil
+	}
+	proxy := *effective.Proxy
+	return validateBrowseForgeProxyRegion(runtimeID, &proxy)
+}
+
+func (s *Server) validateGroupProxyRegion(groupName string, proxy *profile.ProxyConfig) error {
+	if proxy == nil || s.store == nil || s.mgr == nil {
+		return nil
+	}
+	for _, p := range s.store.List(groupName, "") {
+		draft := *p
+		desc, err := s.mgr.RuntimeRegistry().ApplyProfileDefaults(&draft)
+		if err == nil && desc.ID == bfruntime.BrowseForgeChromium {
+			return validateBrowseForgeProxyRegion(desc.ID, proxy)
+		}
+	}
+	return nil
 }
 
 func (s *Server) toolOpenBrowser(args map[string]any) (any, *mcpError) {

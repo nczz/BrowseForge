@@ -127,6 +127,52 @@ func TestCreateProfileRejectsDisabledRuntimeID(t *testing.T) {
 	}
 }
 
+func TestCreateProfileRejectsInvalidBrowseForgeProxyRegion(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	enabled := true
+	h := &handler{store: store, mgr: testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}})}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/profiles", strings.NewReader(`{"name":"Bad Region","runtime_id":"browseforge-chromium","proxy":{"type":"http","host":"proxy.example.com","port":1080,"region":"za-gauteng"}}`))
+	rec := httptest.NewRecorder()
+	h.createProfile(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"INVALID_PROXY_REGION"`) || !strings.Contains(rec.Body.String(), "supported presets") {
+		t.Fatalf("body missing INVALID_PROXY_REGION: %s", rec.Body.String())
+	}
+	if profiles := store.List("", ""); len(profiles) != 0 {
+		t.Fatalf("stored profiles = %d, want 0 after invalid proxy region rejection", len(profiles))
+	}
+}
+
+func TestCreateProfileNormalizesBrowseForgeProxyRegion(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	enabled := true
+	h := &handler{store: store, mgr: testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}})}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/profiles", strings.NewReader(`{"name":"Good Region","runtime_id":"browseforge-chromium","proxy":{"type":"http","host":"proxy.example.com","port":1080,"region":" US-NY "}}`))
+	rec := httptest.NewRecorder()
+	h.createProfile(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	profiles := store.List("", "")
+	if len(profiles) != 1 || profiles[0].Proxy == nil || profiles[0].Proxy.Region != "us-ny" {
+		t.Fatalf("stored profiles = %+v", profiles)
+	}
+}
+
 func TestUpdateProfileRejectsDisabledRuntimeID(t *testing.T) {
 	store, err := profile.NewStore(t.TempDir())
 	if err != nil {
@@ -158,6 +204,38 @@ func TestUpdateProfileRejectsDisabledRuntimeID(t *testing.T) {
 	}
 	if got.RuntimeID != "cloakbrowser" {
 		t.Fatalf("stored runtime_id = %q, want unchanged cloakbrowser", got.RuntimeID)
+	}
+}
+
+func TestUpdateProfileRejectsInvalidBrowseForgeProxyRegion(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	p := &profile.Profile{Name: "Runtime Profile", RuntimeID: "browseforge-chromium"}
+	if err := store.Create(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	enabled := true
+	h := &handler{store: store, mgr: testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}})}
+
+	req := requestWithProfileID(http.MethodPatch, "/api/profiles/"+p.ID, p.ID, strings.NewReader(`{"proxy":{"type":"http","host":"proxy.example.com","port":1080,"region":"192_0_2_1"}}`))
+	rec := httptest.NewRecorder()
+	h.updateProfile(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"INVALID_PROXY_REGION"`) || !strings.Contains(rec.Body.String(), "supported presets") {
+		t.Fatalf("body missing INVALID_PROXY_REGION: %s", rec.Body.String())
+	}
+	got, err := store.Get(p.ID)
+	if err != nil {
+		t.Fatalf("stored profile missing: %v", err)
+	}
+	if got.Proxy != nil {
+		t.Fatalf("stored proxy = %+v, want nil after rejected update", got.Proxy)
 	}
 }
 
@@ -377,6 +455,141 @@ func TestGroupProxyAPIRequiresProxyOnPut(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "MISSING_PROXY") {
 		t.Fatalf("body missing MISSING_PROXY: %s", rec.Body.String())
+	}
+}
+
+func TestCreateProfileRejectsGroupProxyMissingBrowseForgeRegion(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	groupStore, err := groups.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewGroupStore: %v", err)
+	}
+	if _, err := groupStore.Upsert("Client A", &profile.ProxyConfig{Type: "http", Host: "proxy.example.com", Port: 1080}, groups.ProxyModeDefault); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	enabled := true
+	h := &handler{store: store, groupStore: groupStore, mgr: testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}})}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/profiles", strings.NewReader(`{"name":"Grouped BFC","runtime_id":"browseforge-chromium","group":"Client A"}`))
+	rec := httptest.NewRecorder()
+	h.createProfile(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"INVALID_PROXY_REGION"`) || !strings.Contains(rec.Body.String(), "proxy_region is required") {
+		t.Fatalf("body missing INVALID_PROXY_REGION: %s", rec.Body.String())
+	}
+	if profiles := store.List("", ""); len(profiles) != 0 {
+		t.Fatalf("stored profiles = %d, want 0 after group proxy rejection", len(profiles))
+	}
+}
+
+func TestGroupProxyRejectsMissingRegionForBrowseForgeProfiles(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	groupStore, err := groups.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewGroupStore: %v", err)
+	}
+	p := &profile.Profile{Name: "Grouped BFC", RuntimeID: "browseforge-chromium", Group: "Client A"}
+	if err := store.Create(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	enabled := true
+	h := &handler{store: store, groupStore: groupStore, mgr: testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}})}
+
+	req := requestWithGroupName(http.MethodPut, "/api/groups/Client%20A", "Client A", strings.NewReader(`{
+		"proxy_mode": "enforced",
+		"proxy": {"type": "http", "host": "proxy.example.com", "port": 1080}
+	}`))
+	rec := httptest.NewRecorder()
+	h.upsertGroup(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"INVALID_PROXY_REGION"`) || !strings.Contains(rec.Body.String(), "proxy_region is required") {
+		t.Fatalf("body missing INVALID_PROXY_REGION: %s", rec.Body.String())
+	}
+}
+
+func TestUpdateProfileRejectsGroupProxyMissingBrowseForgeRegion(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	groupStore, err := groups.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewGroupStore: %v", err)
+	}
+	if _, err := groupStore.Upsert("Client A", &profile.ProxyConfig{Type: "http", Host: "proxy.example.com", Port: 1080}, groups.ProxyModeDefault); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	p := &profile.Profile{Name: "BFC", RuntimeID: "browseforge-chromium"}
+	if err := store.Create(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	enabled := true
+	h := &handler{store: store, groupStore: groupStore, mgr: testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}})}
+
+	req := requestWithProfileID(http.MethodPatch, "/api/profiles/"+p.ID, p.ID, strings.NewReader(`{"group":"Client A"}`))
+	rec := httptest.NewRecorder()
+	h.updateProfile(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"INVALID_PROXY_REGION"`) || !strings.Contains(rec.Body.String(), "proxy_region is required") {
+		t.Fatalf("body missing INVALID_PROXY_REGION: %s", rec.Body.String())
+	}
+	got, err := store.Get(p.ID)
+	if err != nil {
+		t.Fatalf("stored profile missing: %v", err)
+	}
+	if got.Group != "" {
+		t.Fatalf("stored group = %q, want unchanged empty group", got.Group)
+	}
+}
+
+func TestGroupProxyNormalizesRegionForBrowseForgeProfiles(t *testing.T) {
+	store, err := profile.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	groupStore, err := groups.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewGroupStore: %v", err)
+	}
+	p := &profile.Profile{Name: "Grouped BFC", RuntimeID: "browseforge-chromium", Group: "Client A"}
+	if err := store.Create(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	enabled := true
+	h := &handler{store: store, groupStore: groupStore, mgr: testManagerWithRuntimeConfig(t, &config.Config{Runtimes: map[string]config.RuntimeConfig{
+		"browseforge-chromium": {Enabled: &enabled},
+	}})}
+
+	req := requestWithGroupName(http.MethodPut, "/api/groups/Client%20A", "Client A", strings.NewReader(`{
+		"proxy_mode": "enforced",
+		"proxy": {"type": "http", "host": "proxy.example.com", "port": 1080, "region": " TW "}
+	}`))
+	rec := httptest.NewRecorder()
+	h.upsertGroup(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	g, ok := groupStore.Get("Client A")
+	if !ok || g.Proxy == nil || g.Proxy.Region != "tw" {
+		t.Fatalf("group proxy = %+v ok=%v", g, ok)
 	}
 }
 

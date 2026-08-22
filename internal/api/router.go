@@ -169,6 +169,10 @@ func (h *handler) createProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_RUNTIME", err.Error())
 		return
 	}
+	if err := h.validateBrowseForgeProfileProxy(desc.ID, &p); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_PROXY_REGION", err.Error())
+		return
+	}
 	if err := h.prepareProfileIdentity(&p, desc); err != nil {
 		writeError(w, http.StatusInternalServerError, "PREPARE_PROFILE_FAILED", err.Error())
 		return
@@ -235,29 +239,56 @@ func (h *handler) updateProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "DEPRECATED_FIELD", "engine was removed in v2; use runtime_id")
 		return
 	}
-	if _, runtimeChanged := updates["runtime_id"]; runtimeChanged {
+	if _, runtimeChanged := updates["runtime_id"]; runtimeChanged || hasProxyUpdate(updates) || hasGroupUpdate(updates) {
 		current, err := h.store.Get(chi.URLParam(r, "id"))
 		if err != nil {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
 			return
 		}
 		draft := *current
-		v, ok := updates["runtime_id"].(string)
-		if !ok {
-			writeError(w, http.StatusBadRequest, "INVALID_RUNTIME", "runtime_id must be a string")
-			return
+		if runtimeChanged {
+			v, ok := updates["runtime_id"].(string)
+			if !ok {
+				writeError(w, http.StatusBadRequest, "INVALID_RUNTIME", "runtime_id must be a string")
+				return
+			}
+			draft.RuntimeID = v
 		}
-		draft.RuntimeID = v
+		if _, groupChanged := updates["group"]; groupChanged {
+			v, ok := updates["group"].(string)
+			if !ok {
+				writeError(w, http.StatusBadRequest, "INVALID_BODY", "group must be a string")
+				return
+			}
+			draft.Group = v
+		}
+		if _, proxyChanged := updates["proxy"]; proxyChanged {
+			proxy, err := decodeProxyUpdate(updates["proxy"])
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "INVALID_PROXY", err.Error())
+				return
+			}
+			draft.Proxy = proxy
+		}
 		desc, err := h.mgr.RuntimeRegistry().ApplyProfileDefaults(&draft)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_RUNTIME", err.Error())
 			return
 		}
-		if err := requireEnabledRuntime(desc); err != nil {
-			writeError(w, http.StatusBadRequest, "INVALID_RUNTIME", err.Error())
+		if runtimeChanged {
+			if err := requireEnabledRuntime(desc); err != nil {
+				writeError(w, http.StatusBadRequest, "INVALID_RUNTIME", err.Error())
+				return
+			}
+		}
+		if err := h.validateBrowseForgeProfileProxy(desc.ID, &draft); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_PROXY_REGION", err.Error())
 			return
 		}
 		updates["runtime_id"] = draft.RuntimeID
+		if _, proxyChanged := updates["proxy"]; proxyChanged {
+			updates["proxy"] = draft.Proxy
+		}
 	}
 	p, err := h.store.Update(chi.URLParam(r, "id"), updates)
 	if err != nil {
@@ -299,6 +330,62 @@ func (h *handler) duplicateProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 // Session and browser operations are in sessions.go
+
+func hasProxyUpdate(updates map[string]any) bool {
+	_, ok := updates["proxy"]
+	return ok
+}
+func hasGroupUpdate(updates map[string]any) bool {
+	_, ok := updates["group"]
+	return ok
+}
+
+func decodeProxyUpdate(raw any) (*profile.ProxyConfig, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var proxy profile.ProxyConfig
+	if err := json.Unmarshal(data, &proxy); err != nil {
+		return nil, err
+	}
+	return &proxy, nil
+}
+
+func validateBrowseForgeProxyRegion(runtimeID bfruntime.ID, proxy *profile.ProxyConfig) error {
+	if runtimeID != bfruntime.BrowseForgeChromium || proxy == nil {
+		return nil
+	}
+	normalized, err := browser.NormalizeBrowseForgeProxyRegion(proxy.Region)
+	if err != nil {
+		return err
+	}
+	if normalized == "" {
+		return fmt.Errorf("browseforge-chromium proxy_region is required when a proxy is configured; use a redacted geographic label such as %s", browser.BrowseForgeProxyRegionExamples)
+	}
+	proxy.Region = normalized
+	return nil
+}
+
+func (h *handler) validateBrowseForgeProfileProxy(runtimeID bfruntime.ID, p *profile.Profile) error {
+	if runtimeID != bfruntime.BrowseForgeChromium || p == nil {
+		return nil
+	}
+	if p.Proxy != nil {
+		if err := validateBrowseForgeProxyRegion(runtimeID, p.Proxy); err != nil {
+			return err
+		}
+	}
+	effective := h.effectiveProxyForProfile(p)
+	if effective.Proxy == nil || effective.Source == "profile" {
+		return nil
+	}
+	proxy := *effective.Proxy
+	return validateBrowseForgeProxyRegion(runtimeID, &proxy)
+}
 
 // --- Helpers ---
 
