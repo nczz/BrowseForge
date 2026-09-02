@@ -22,7 +22,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.13
+  ghcr.io/nczz/browseforge:v2.1.14
 ```
 
 本地從原始碼 build：
@@ -33,17 +33,17 @@ mkdir -p ./browseforge/{profiles,data,browsers,logs,backups}
 docker compose up -d --build
 ```
 
-compose 預設會建置 `v2.1.13` release image。要測其他版本：
+compose 預設會建置 `v2.1.14` release image。要測其他版本：
 
 ```bash
-BROWSEFORGE_VERSION=v2.1.13 docker compose up -d --build
+BROWSEFORGE_VERSION=v2.1.14 docker compose up -d --build
 ```
 
 驗證尚未發布的 BrowseForge Chromium runtime 時，請把 image build 指向暫存的 runtime asset root。該 root 必須包含 `checksums.txt`、`runtime.manifest.json`，以及 `<runtime-version>/browseforge-runtime-chromium-<runtime-version>-linux-{x64,arm64}.zip`：
 
 ```bash
 BROWSEFORGE_CHROMIUM_RELEASE_BASE_URL=https://host/runtime/releases \
-BROWSEFORGE_VERSION=v2.1.13 docker compose up -d --build
+BROWSEFORGE_VERSION=v2.1.14 docker compose up -d --build
 ```
 
 ## 首次啟動
@@ -94,7 +94,7 @@ Pull 新 image 或重建容器時，必須沿用同一組 `-v "$PWD/browseforge/
 升級範例：
 
 ```bash
-docker pull ghcr.io/nczz/browseforge:v2.1.13
+docker pull ghcr.io/nczz/browseforge:v2.1.14
 docker stop browseforge
 docker rm browseforge
 docker run -d --name browseforge \
@@ -108,7 +108,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.13
+  ghcr.io/nczz/browseforge:v2.1.14
 ```
 
 完整 filesystem 備份：

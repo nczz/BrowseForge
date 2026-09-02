@@ -20,7 +20,7 @@ BrowseForge releases are tag driven. Do not create or push release tags by hand.
 3. Run preflight from a clean `main` checkout:
 
    ```bash
-   scripts/release-preflight.sh v2.1.13
+   scripts/release-preflight.sh v2.1.14
    ```
 
 The preflight checks the working tree, version references, Go tests, vet, UI i18n syntax, public documentation language, workflow YAML, Docker Compose config, the Camoufox Bind spike, the CloakBrowser Bind spike when a local binary is available, BrowseForge Chromium runtime release asset availability for `linux-x64` and `linux-arm64`, and real `linux/amd64` plus `linux/arm64` Docker builds.
@@ -30,14 +30,14 @@ For release machines that must prove both browser engines before publishing, enf
 ```bash
 REQUIRE_CLOAKBROWSER=1 \
 CLOAKBROWSER_PATH=/path/to/Chromium \
-scripts/release-preflight.sh v2.1.13
+scripts/release-preflight.sh v2.1.14
 ```
 
 If the runtime release assets are staged outside GitHub while validating a coordinated BrowseForge/runtime release, point the preflight at that release-asset root. The URL must contain `checksums.txt`, `runtime.manifest.json`, and `<runtime-version>/browseforge-runtime-chromium-<runtime-version>-linux-{x64,arm64}.zip`:
 
 ```bash
 BROWSEFORGE_CHROMIUM_RELEASE_BASE_URL=https://host/runtime/releases \
-scripts/release-preflight.sh v2.1.13
+scripts/release-preflight.sh v2.1.14
 ```
 
 To check only the BrowseForge Chromium release assets without building Docker images:
@@ -52,7 +52,7 @@ scripts/check-browseforge-chromium-assets.sh
 After preflight passes:
 
 ```bash
-scripts/release-push.sh v2.1.13
+scripts/release-push.sh v2.1.14
 gh run watch
 ```
 

@@ -4,6 +4,12 @@ All notable changes should be documented here. This project follows semantic ver
 
 ## Unreleased
 
+## v2.1.14 - 2026-09-02
+
+### Fixed
+
+- Fixed Camoufox Playwright Bind endpoint health checks by disabling Playwright viewport initialization during Camoufox probe pages, allowing Camoufox v135 sessions to start without `Browser.setDefaultViewport` errors.
+
 ## v2.1.13 - 2026-08-22
 
 ### Fixed
