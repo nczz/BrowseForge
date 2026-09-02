@@ -239,12 +239,21 @@ func (m *Manager) checkEndpointHealth(session *Session, timeoutMS float64) error
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer connected.Close()
-	page, err := connected.NewPage()
+	page, err := connected.NewPage(endpointHealthNewPageOptions(session.RuntimeID)...)
 	if err != nil {
 		return fmt.Errorf("new page: %w", err)
 	}
 	defer page.Close()
 	return nil
+}
+
+func endpointHealthNewPageOptions(runtimeID string) []playwright.BrowserNewPageOptions {
+	if runtimeID != string(bfruntime.Camoufox) {
+		return nil
+	}
+	return []playwright.BrowserNewPageOptions{{
+		NoViewport: playwright.Bool(true),
+	}}
 }
 
 func (m *Manager) closeSessionResources(s *Session, reason string) {

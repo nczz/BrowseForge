@@ -133,6 +133,24 @@ func TestEndpointHealthErrorClassification(t *testing.T) {
 	}
 }
 
+func TestEndpointHealthNewPageOptionsDisablesViewportForCamoufox(t *testing.T) {
+	opts := endpointHealthNewPageOptions(string(bfruntime.Camoufox))
+	if len(opts) != 1 {
+		t.Fatalf("len(options) = %d, want 1", len(opts))
+	}
+	if opts[0].NoViewport == nil || !*opts[0].NoViewport {
+		t.Fatalf("NoViewport = %#v, want true", opts[0].NoViewport)
+	}
+}
+
+func TestEndpointHealthNewPageOptionsPreservesChromiumDefaults(t *testing.T) {
+	for _, runtimeID := range []string{string(bfruntime.CloakBrowser), string(bfruntime.BrowseForgeChromium), ""} {
+		if opts := endpointHealthNewPageOptions(runtimeID); opts != nil {
+			t.Fatalf("runtime %q options = %#v, want nil", runtimeID, opts)
+		}
+	}
+}
+
 func TestCleanProfileLocks(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"SingletonLock", "SingletonCookie", "SingletonSocket"} {
