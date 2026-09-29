@@ -4,6 +4,13 @@ All notable changes should be documented here. This project follows semantic ver
 
 ## Unreleased
 
+## v2.1.15 - 2026-09-29
+
+### Fixed
+
+- Fixed Camoufox runtime support on Windows x64 by making the runtime registry reuse the same artifact support source as browser downloads.
+- Consolidated browser runtime version, platform, and artifact filename checks so startup, CLI status/install, downloads, and API runtime metadata cannot drift across separate support tables.
+
 ## v2.1.14 - 2026-09-02
 
 ### Fixed
