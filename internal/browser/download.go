@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,93 +13,37 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	bfruntime "browseforge/internal/runtime"
 )
 
 // Downloader handles first-run browser binary downloads
 
-// Version constants — bump these to trigger auto-update
+// Version constants — bump these in internal/runtime/support.go to trigger auto-update.
 const (
-	CamoufoxVersion              = "v135.0.1-beta.24"
-	CloakBrowserVersion          = "chromium-v146.0.7680.177.4"
-	BrowseForgeChromiumVersion   = "v0.1.6-alpha.0"
+	CamoufoxVersion              = bfruntime.CamoufoxVersion
+	CloakBrowserVersion          = bfruntime.CloakBrowserVersion
+	BrowseForgeChromiumVersion   = bfruntime.BrowseForgeChromiumVersion
 	BrowseForgeChromiumRelease   = "https://github.com/nczz/browseforge-runtime-chromium/releases/download"
-	BrowseForgeChromiumRuntimeID = "browseforge-chromium"
+	BrowseForgeChromiumRuntimeID = bfruntime.BrowseForgeChromiumRuntimeID
 )
 
-var ErrUnsupportedRuntimePlatform = errors.New("unsupported runtime platform")
+var ErrUnsupportedRuntimePlatform = bfruntime.ErrUnsupportedRuntimePlatform
 
-type UnsupportedRuntimePlatformError struct {
-	Runtime string
-	Version string
-	GOOS    string
-	GOARCH  string
-}
-
-func (e UnsupportedRuntimePlatformError) Error() string {
-	return fmt.Sprintf("%s %s is not available for %s/%s", e.Runtime, e.Version, e.GOOS, e.GOARCH)
-}
-
-func (e UnsupportedRuntimePlatformError) Unwrap() error {
-	return ErrUnsupportedRuntimePlatform
-}
-
-type RuntimeSupport struct {
-	RuntimeID         string
-	DisplayName       string
-	Version           string
-	GOOS              string
-	GOARCH            string
-	PlatformSupported bool
-	UnsupportedReason string
-}
-
-func unsupportedRuntime(runtimeID, displayName, version, goos, goarch string) RuntimeSupport {
-	err := UnsupportedRuntimePlatformError{Runtime: displayName, Version: version, GOOS: goos, GOARCH: goarch}
-	return RuntimeSupport{
-		RuntimeID:         runtimeID,
-		DisplayName:       displayName,
-		Version:           version,
-		GOOS:              goos,
-		GOARCH:            goarch,
-		PlatformSupported: false,
-		UnsupportedReason: err.Error(),
-	}
-}
-
-func supportedRuntime(runtimeID, displayName, version, goos, goarch string) RuntimeSupport {
-	return RuntimeSupport{
-		RuntimeID:         runtimeID,
-		DisplayName:       displayName,
-		Version:           version,
-		GOOS:              goos,
-		GOARCH:            goarch,
-		PlatformSupported: true,
-	}
-}
+type UnsupportedRuntimePlatformError = bfruntime.UnsupportedRuntimePlatformError
+type RuntimeSupport = bfruntime.RuntimeSupport
 
 func CurrentRuntimeSupport(runtimeID string) RuntimeSupport {
-	return RuntimeSupportFor(runtimeID, runtime.GOOS, runtime.GOARCH)
+	return bfruntime.CurrentRuntimeSupport(runtimeID)
 }
 
 func RuntimeSupportFor(runtimeID, goos, goarch string) RuntimeSupport {
-	switch runtimeID {
-	case "camoufox":
-		return CamoufoxSupportFor(goos, goarch)
-	case "cloakbrowser":
-		return CloakBrowserSupportFor(goos, goarch)
-	case BrowseForgeChromiumRuntimeID:
-		return BrowseForgeChromiumSupportFor(goos, goarch)
-	default:
-		return unsupportedRuntime(runtimeID, runtimeID, "", goos, goarch)
-	}
+	return bfruntime.RuntimeSupportFor(runtimeID, goos, goarch)
 }
 
 // ExpectedCloakBrowserVersion returns the expected version for the current platform.
 func ExpectedCloakBrowserVersion() string {
-	if runtime.GOOS == "darwin" {
-		return "chromium-v145.0.7632.109.2"
-	}
-	return CloakBrowserVersion
+	return bfruntime.ExpectedCloakBrowserVersion()
 }
 
 type BrowserInfo struct {
@@ -202,14 +145,11 @@ func FindBinary(baseDir, browserName string) string {
 }
 
 func ExpectedBrowseForgeChromiumVersion() string {
-	return BrowseForgeChromiumVersion
+	return bfruntime.ExpectedBrowseForgeChromiumVersion()
 }
 
 func BrowseForgeChromiumSupportFor(goos, goarch string) RuntimeSupport {
-	if _, err := browseForgeChromiumPlatformFor(goos, goarch); err != nil {
-		return unsupportedRuntime(BrowseForgeChromiumRuntimeID, "BrowseForge Chromium", BrowseForgeChromiumVersion, goos, goarch)
-	}
-	return supportedRuntime(BrowseForgeChromiumRuntimeID, "BrowseForge Chromium", BrowseForgeChromiumVersion, goos, goarch)
+	return bfruntime.BrowseForgeChromiumSupportFor(goos, goarch)
 }
 
 func browseForgeChromiumPlatform() (string, error) {
@@ -217,58 +157,15 @@ func browseForgeChromiumPlatform() (string, error) {
 }
 
 func browseForgeChromiumPlatformFor(goos, goarch string) (string, error) {
-	switch goos {
-	case "darwin":
-		switch goarch {
-		case "arm64":
-			return "macos-arm64", nil
-		case "amd64":
-			return "macos-x64", nil
-		}
-	case "linux":
-		switch goarch {
-		case "amd64":
-			return "linux-x64", nil
-		case "arm64":
-			return "linux-arm64", nil
-		}
-	case "windows":
-		if goarch == "amd64" {
-			return "windows-x64", nil
-		}
-	}
-	return "", fmt.Errorf("unsupported BrowseForge Chromium platform: %s/%s", goos, goarch)
+	return bfruntime.BrowseForgeChromiumPlatformFor(goos, goarch)
 }
 
 func CamoufoxSupportFor(goos, goarch string) RuntimeSupport {
-	if _, err := camoufoxDownloadFilenameFor(CamoufoxVersion, goos, goarch); err != nil {
-		return unsupportedRuntime("camoufox", "Camoufox", CamoufoxVersion, goos, goarch)
-	}
-	return supportedRuntime("camoufox", "Camoufox", CamoufoxVersion, goos, goarch)
+	return bfruntime.CamoufoxSupportFor(goos, goarch)
 }
 
 func camoufoxDownloadFilenameFor(version, goos, goarch string) (string, error) {
-	switch goos {
-	case "darwin":
-		switch goarch {
-		case "amd64":
-			return "camoufox-135.0.1-beta.24-mac.x86_64.zip", nil
-		case "arm64":
-			return "camoufox-135.0.1-beta.24-mac.arm64.zip", nil
-		}
-	case "linux":
-		switch goarch {
-		case "amd64":
-			return "camoufox-135.0.1-beta.24-lin.x86_64.zip", nil
-		case "arm64":
-			return "camoufox-135.0.1-beta.24-lin.arm64.zip", nil
-		}
-	case "windows":
-		if goarch == "amd64" {
-			return "camoufox-135.0.1-beta.24-win.x86_64.zip", nil
-		}
-	}
-	return "", UnsupportedRuntimePlatformError{Runtime: "Camoufox", Version: version, GOOS: goos, GOARCH: goarch}
+	return bfruntime.CamoufoxDownloadFilenameFor(version, goos, goarch)
 }
 
 func camoufoxDownloadURLFor(version, goos, goarch string) (string, string, error) {
@@ -381,50 +278,13 @@ func DownloadCamoufox(baseDir string) (string, error) {
 }
 
 func CloakBrowserSupportFor(goos, goarch string) RuntimeSupport {
-	supported := false
-	switch goos {
-	case "darwin", "linux":
-		supported = goarch == "amd64" || goarch == "arm64"
-	case "windows":
-		supported = goarch == "amd64"
-	}
-	version := CloakBrowserVersion
-	if goos == "darwin" {
-		version = "chromium-v145.0.7632.109.2"
-	}
-	if !supported {
-		return unsupportedRuntime("cloakbrowser", "CloakBrowser", version, goos, goarch)
-	}
-	return supportedRuntime("cloakbrowser", "CloakBrowser", version, goos, goarch)
+	return bfruntime.CloakBrowserSupportFor(goos, goarch)
 }
 
 func DownloadCloakBrowser(baseDir string) (string, error) {
-	arch := runtime.GOARCH
-	osName := runtime.GOOS
-
-	var filename string
-	switch osName {
-	case "darwin":
-		suffix := "x64"
-		if arch == "arm64" {
-			suffix = "arm64"
-		}
-		filename = fmt.Sprintf("cloakbrowser-darwin-%s.tar.gz", suffix)
-	case "linux":
-		suffix := "x64"
-		if arch == "arm64" {
-			suffix = "arm64"
-		}
-		filename = fmt.Sprintf("cloakbrowser-linux-%s.tar.gz", suffix)
-	case "windows":
-		filename = "cloakbrowser-windows-x64.zip"
-	default:
-		return "", fmt.Errorf("unsupported OS: %s", osName)
-	}
-
-	version := CloakBrowserVersion
-	if runtime.GOOS == "darwin" {
-		version = "chromium-v145.0.7632.109.2"
+	version, filename, err := bfruntime.CloakBrowserArchiveFilenameFor(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return "", err
 	}
 	url := fmt.Sprintf("https://github.com/CloakHQ/CloakBrowser/releases/download/%s/%s", version, filename)
 	destDir := filepath.Join(baseDir, "browsers", "cloakbrowser")
@@ -444,7 +304,7 @@ func DownloadCloakBrowser(baseDir string) (string, error) {
 	}
 	os.Remove(tmpFile)
 
-	if osName == "darwin" {
+	if runtime.GOOS == "darwin" {
 		exec.Command("xattr", "-cr", destDir).Run()
 	}
 

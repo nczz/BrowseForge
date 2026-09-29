@@ -6,11 +6,19 @@ cd "$repo_root"
 
 version="${1:-}"
 if [[ -z "$version" ]]; then
-  version="$(grep 'BrowseForgeChromiumVersion' internal/browser/download.go | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1)"
+  version="$(python3 - <<'PY'
+import pathlib, re, sys
+for path in (pathlib.Path("internal/runtime/support.go"), pathlib.Path("internal/browser/download.go")):
+    match = re.search(r'BrowseForgeChromiumVersion\s*=\s*"([^"]+)"', path.read_text())
+    if match:
+        print(match.group(1))
+        sys.exit(0)
+PY
+)"
 fi
 
 if [[ -z "$version" ]]; then
-  echo "Could not read BrowseForgeChromiumVersion from internal/browser/download.go" >&2
+  echo "Could not read BrowseForgeChromiumVersion from internal/runtime/support.go" >&2
   exit 1
 fi
 

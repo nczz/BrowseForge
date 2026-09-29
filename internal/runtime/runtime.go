@@ -61,22 +61,8 @@ type Registry struct {
 }
 
 func platformSupported(id ID, goos, goarch string) (bool, string) {
-	supported := false
-	switch id {
-	case Camoufox:
-		supported = (goos == "linux" && (goarch == "amd64" || goarch == "arm64")) ||
-			(goos == "darwin" && goarch == "arm64")
-	case CloakBrowser:
-		supported = ((goos == "darwin" || goos == "linux") && (goarch == "amd64" || goarch == "arm64")) ||
-			(goos == "windows" && goarch == "amd64")
-	case BrowseForgeChromium:
-		supported = ((goos == "darwin" || goos == "linux") && (goarch == "amd64" || goarch == "arm64")) ||
-			(goos == "windows" && goarch == "amd64")
-	}
-	if supported {
-		return true, ""
-	}
-	return false, fmt.Sprintf("%s is not available for %s/%s", id, goos, goarch)
+	support := RuntimeSupportFor(string(id), goos, goarch)
+	return support.PlatformSupported, support.UnsupportedReason
 }
 
 func applyPlatformSupport(desc Descriptor) Descriptor {

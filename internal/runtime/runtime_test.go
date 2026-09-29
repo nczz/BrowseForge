@@ -143,18 +143,47 @@ func TestRegistryListReturnsStableRuntimeMetadata(t *testing.T) {
 	}
 }
 
-func TestPlatformSupportDisablesUnsupportedRuntime(t *testing.T) {
-	ok, reason := platformSupported(Camoufox, "windows", "arm64")
-	if ok {
-		t.Fatal("Camoufox windows/arm64 should be unsupported for the configured release")
-	}
-	if !strings.Contains(reason, "camoufox") || !strings.Contains(reason, "windows/arm64") {
-		t.Fatalf("unsupported reason = %q", reason)
+func TestPlatformSupportUsesRuntimeArtifactSource(t *testing.T) {
+	tests := []struct {
+		id     ID
+		goos   string
+		goarch string
+		wantOK bool
+	}{
+		{id: Camoufox, goos: "darwin", goarch: "amd64", wantOK: true},
+		{id: Camoufox, goos: "darwin", goarch: "arm64", wantOK: true},
+		{id: Camoufox, goos: "linux", goarch: "amd64", wantOK: true},
+		{id: Camoufox, goos: "linux", goarch: "arm64", wantOK: true},
+		{id: Camoufox, goos: "windows", goarch: "amd64", wantOK: true},
+		{id: Camoufox, goos: "windows", goarch: "arm64", wantOK: false},
+		{id: CloakBrowser, goos: "darwin", goarch: "amd64", wantOK: true},
+		{id: CloakBrowser, goos: "darwin", goarch: "arm64", wantOK: true},
+		{id: CloakBrowser, goos: "linux", goarch: "amd64", wantOK: true},
+		{id: CloakBrowser, goos: "linux", goarch: "arm64", wantOK: true},
+		{id: CloakBrowser, goos: "windows", goarch: "amd64", wantOK: true},
+		{id: CloakBrowser, goos: "windows", goarch: "arm64", wantOK: false},
+		{id: BrowseForgeChromium, goos: "darwin", goarch: "amd64", wantOK: true},
+		{id: BrowseForgeChromium, goos: "darwin", goarch: "arm64", wantOK: true},
+		{id: BrowseForgeChromium, goos: "linux", goarch: "amd64", wantOK: true},
+		{id: BrowseForgeChromium, goos: "linux", goarch: "arm64", wantOK: true},
+		{id: BrowseForgeChromium, goos: "windows", goarch: "amd64", wantOK: true},
+		{id: BrowseForgeChromium, goos: "linux", goarch: "386", wantOK: false},
 	}
 
-	ok, reason = platformSupported(BrowseForgeChromium, "windows", "amd64")
-	if !ok || reason != "" {
-		t.Fatalf("BrowseForge Chromium windows/amd64 support = %v %q, want supported", ok, reason)
+	for _, tc := range tests {
+		t.Run(string(tc.id)+"_"+tc.goos+"_"+tc.goarch, func(t *testing.T) {
+			ok, reason := platformSupported(tc.id, tc.goos, tc.goarch)
+			support := RuntimeSupportFor(string(tc.id), tc.goos, tc.goarch)
+			if ok != support.PlatformSupported || reason != support.UnsupportedReason {
+				t.Fatalf("platformSupported() = %v/%q, RuntimeSupportFor() = %v/%q", ok, reason, support.PlatformSupported, support.UnsupportedReason)
+			}
+			if ok != tc.wantOK {
+				t.Fatalf("platform support = %v, want %v; reason = %q", ok, tc.wantOK, reason)
+			}
+			if !ok && (reason == "" || !strings.Contains(reason, tc.goos+"/"+tc.goarch)) {
+				t.Fatalf("unsupported reason = %q", reason)
+			}
+		})
 	}
 }
 

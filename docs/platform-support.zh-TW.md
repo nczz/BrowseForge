@@ -31,8 +31,8 @@
 
 BrowseForge 版本與瀏覽器 runtime 版本分開。啟動與 `browsers install` 時，BrowseForge 依目前 `GOOS/GOARCH` 只啟用並下載支援的平台 runtime；不支援的 runtime 會被略過並標示為停用。
 
-- Camoufox 維持使用 `v135.0.1-beta.24`，因為該上游 release 有完整瀏覽器 binary：macOS x64/arm64、Linux x64/arm64、Windows x64。較新的 `v152.0.2-alpha` 公開 ZIP 目前包含 fingerprint/font payload，但沒有可執行瀏覽器 binary，因此 BrowseForge 不選它做 runtime 下載。
-- CloakBrowser `chromium-v146.0.7680.177.5` 比 `.4` 新，但上游只提供 Linux x64 與 Windows x64；Linux arm64 與 macOS 仍停在不同版本。因此 BrowseForge 維持 Linux/Windows 使用 `chromium-v146.0.7680.177.4`、macOS 使用 `chromium-v145.0.7632.109.2`，直到上游恢復更乾淨的跨平台組合。
+- Camoufox 目前 BrowseForge release 維持使用 `v135.0.1-beta.24`，因為該 pinned 上游 release 有完整瀏覽器 binary：macOS x64/arm64、Linux x64/arm64、Windows x64。較新的上游 Camoufox release 也已提供這些平台的 browser ZIP：GitHub latest stable marker 是 `v152.0.4-beta.30`，release feed 最新項目是 prerelease `v156.0.1-beta.32`。升級 pinned runtime 版本屬於另一個相容性驗證任務。
+- CloakBrowser 維持 Linux/Windows 使用 `chromium-v146.0.7680.177.4`、macOS 使用 `chromium-v145.0.7632.109.2`。較新的上游 release 目前沒有提供 BrowseForge 使用的乾淨跨平台 asset set；最新 `chromium-v152.0.7977.82.1-pro` 推進 Linux x64/arm64 與 Windows x64，但 macOS 仍停在另一個較舊 build，且 GitHub release attachments 暴露的是 checksum/signature metadata 而非直接 browser archives。
 - BrowseForge Chromium `v0.1.6-alpha.0` 是 `browseforge-runtime-chromium` release channel 的 source-level Chromium alpha runtime，也是 Camoufox 不支援平台上的 fallback runtime。GHCR 預設會在原生 `linux/amd64` 與 `linux/arm64` image 內預載 Camoufox 與 BrowseForge Chromium；BrowseForge Chromium launch persona 會分別解析 `Linux x86_64` 與 `Linux arm64`，確保 UA、UA-CH、`navigator.platform` 與 native persona JSON 的架構一致。
 
 ## Docker 平台政策
@@ -87,7 +87,7 @@ Windows x64:    https://github.com/nczz/browseforge-runtime-chromium/releases/do
 更新瀏覽器版本時：
 
 - [ ] 確認新版本在所有支援平台都有 binary
-- [ ] 更新 `internal/browser/download.go` 中的版本號和 URL
+- [ ] 更新 `internal/runtime/support.go` 中的版本號、平台檔名與支援判斷
 - [ ] 更新此表
 - [ ] 測試自動下載功能
 - [ ] 測試反偵測能力（browserleaks、Sannysoft）

@@ -30,8 +30,8 @@ This matrix defines the currently supported platforms and browser-runtime availa
 
 BrowseForge releases are independent from browser runtime releases. At startup and during `browsers install`, BrowseForge enables and downloads only the runtimes that support the current `GOOS/GOARCH`; unsupported runtimes are skipped and reported as disabled.
 
-- Camoufox stays on `v135.0.1-beta.24` because that upstream release publishes complete browser binaries for macOS x64/arm64, Linux x64/arm64, and Windows x64. The newer `v152.0.2-alpha` public ZIPs currently contain the fingerprint/font payload but not a runnable browser binary, so BrowseForge does not select them for runtime downloads.
-- CloakBrowser `chromium-v146.0.7680.177.5` is newer than `.4`, but upstream publishes it for Linux x64 and Windows x64 only; Linux arm64 remains on an earlier v146 build and macOS remains on v145. Keep BrowseForge on `chromium-v146.0.7680.177.4` for Linux/Windows and `chromium-v145.0.7632.109.2` for macOS unless a future release restores a cleaner cross-platform set.
+- Camoufox stays on `v135.0.1-beta.24` for the current BrowseForge release because that pinned upstream release publishes complete browser binaries for macOS x64/arm64, Linux x64/arm64, and Windows x64. Newer upstream Camoufox releases also publish browser ZIPs for these platforms: GitHub's latest stable marker is `v152.0.4-beta.30`, and the newest release feed entry is prerelease `v156.0.1-beta.32`. Upgrading the pinned runtime version is a separate compatibility-validation task.
+- CloakBrowser stays on `chromium-v146.0.7680.177.4` for Linux/Windows and `chromium-v145.0.7632.109.2` for macOS. Newer upstream releases do not currently provide the same clean cross-platform asset set used by BrowseForge; latest `chromium-v152.0.7977.82.1-pro` advances Linux x64/arm64 and Windows x64 while macOS remains on a separate older build, and its GitHub release attachments expose checksum/signature metadata rather than direct browser archives.
 - BrowseForge Chromium `v0.1.6-alpha.0` is the source-level Chromium alpha runtime from the `browseforge-runtime-chromium` release channel and is the fallback runtime on platforms where Camoufox is unsupported. GHCR defaults preinstall Camoufox plus BrowseForge Chromium for native `linux/amd64` and `linux/arm64` images; BrowseForge Chromium launch persona values are resolved separately for `Linux x86_64` and `Linux arm64` so UA, UA-CH, `navigator.platform`, and the native persona JSON remain architecture-coherent.
 
 ## Docker Platform Policy
@@ -86,7 +86,7 @@ Windows x64:    https://github.com/nczz/browseforge-runtime-chromium/releases/do
 When updating browser runtime versions:
 
 - [ ] Confirm that each supported platform has a compatible browser binary.
-- [ ] Update versions and URLs in `internal/browser/download.go`.
+- [ ] Update versions, platform filenames, and support checks in `internal/runtime/support.go`.
 - [ ] Update this matrix.
 - [ ] Test browser auto-download.
 - [ ] Test anti-detection behavior with BrowserLeaks and SannySoft.
