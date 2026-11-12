@@ -72,6 +72,7 @@ func NewRouter(cfg *config.Config, store *profile.Store, mgr *browser.Manager, f
 		r.Post("/api/sessions", h.createSession)
 		r.Get("/api/sessions", h.listSessions)
 		r.Delete("/api/sessions/{id}", h.deleteSession)
+		r.Get("/api/diagnostics/sessions", h.sessionDiagnostics)
 
 		r.Post("/api/sessions/{id}/navigate", h.navigate)
 		r.Post("/api/sessions/{id}/click", h.click)
@@ -115,8 +116,10 @@ func (h *handler) authMiddleware(next http.Handler) http.Handler {
 
 func (h *handler) status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version": h.cfg.Version,
-		"status":  "ok",
+		"version":                h.cfg.Version,
+		"status":                 "ok",
+		"active_sessions":        len(h.mgr.ListSessions()),
+		"endpoint_health_policy": h.mgr.EndpointHealthPolicy(),
 	})
 }
 

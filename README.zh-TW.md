@@ -91,7 +91,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.15
+  ghcr.io/nczz/browseforge:v2.1.16
 ```
 
 `./browseforge/` host 目錄就是持久化 runtime。之後 pull 新 image 或重建 container 時沿用這組 mounts，profiles、token、browser data、logs、backups 都會保留。
@@ -185,6 +185,13 @@ Agent 與 CI 整合建議對 `token`、`doctor`、`capabilities`、`smoke` 使�
   "data_dir": "data",
   "log_file": "logs/server.log",
   "default_runtime_id": "camoufox",
+  "endpoint_health": {
+    "timeout_ms": 15000,
+    "attempts": 2,
+    "retry_delay_ms": 500,
+    "probe_page": false,
+    "history_limit": 256
+  },
   "runtimes": {
     "camoufox": {
       "enabled": true,
@@ -242,6 +249,11 @@ Agent 與 CI 整合建議對 `token`、`doctor`、`capabilities`、`smoke` 使�
 | `profiles_dir` | Profile 資料目錄 | `profiles` |
 | `data_dir` | token、指紋池資料目錄 | `data` |
 | `log_file` | 日誌檔案 | `logs/server.log` |
+| `endpoint_health.timeout_ms` | 每次 Playwright Bind connect probe 的 timeout，上限 120000 | `15000` |
+| `endpoint_health.attempts` | 清理或重啟前，對同一個 runtime child 執行的檢查次數，上限 5 | `2` |
+| `endpoint_health.retry_delay_ms` | endpoint 檢查之間的等待時間，上限 30000 | `500` |
+| `endpoint_health.probe_page` | 額外建立並關閉診斷頁面；建議維持關閉，避免 health check 產生可見分頁 | `false` |
+| `endpoint_health.history_limit` | diagnostics API 保留的記憶體內 session lifecycle events，上限 2000 | `256` |
 | `default_runtime_id` | 產生 config 與 UI flow 預設選取的 runtime | `camoufox` |
 | `runtimes.<id>.enabled` | runtime provider 是否可供建立 profile 與啟動 | 依 runtime 而定 |
 | `runtimes.<id>.binary_path` | runtime provider 執行檔路徑；provider 包含 `camoufox`、`cloakbrowser`，以及 opt-in alpha `browseforge-chromium`。BrowseForge Chromium 必須指向解壓後的瀏覽器 binary（`chrome`、`Chromium.app/Contents/MacOS/Chromium` 或 `chrome.exe`），不是 standalone wrapper。 | 自動偵測或 operator 提供 |
@@ -258,6 +270,8 @@ Agent 與 CI 整合建議對 `token`、`doctor`、`capabilities`、`smoke` 使�
 | `runtimes.cloakbrowser.settings.target_platform_policy` | Runtime/identity 一致性策略：`strict` 拒絕高風險 target/platform 組合，`warn` 記錄警告，`allow` 跳過 guardrail | `warn` |
 | `runtimes.cloakbrowser.settings.extra_args` | 額外 CloakBrowser/Chromium args；BrowseForge 會忽略會覆蓋 profile、proxy、cache 或 debugging ownership 的 args | `[]` |
 | `fingerprint_dir` | 指紋池 JSON 目錄 | `data` |
+
+Endpoint health check 預設只測試 connect。BrowseForge 會先對同一個 Bind endpoint 重試，再決定是否關閉 runtime child；browser disconnect 與 cleanup reason 會記錄於需驗證的 `GET /api/diagnostics/sessions`。Server 重啟後仍以持久化 JSON log 為準。
 
 `runtimes.cloakbrowser.settings` 區塊會分開 VM/runtime 穩定性設定與可稽核的指紋設定。`safe_gpu`、`auto_safe_gpu_fallback`、`isolated_runtime_cache` 與 `repair_transient_cache_on_launch_failure` 是啟動穩定性策略；`fingerprint_platform`、`fonts_dir` 與 `storage_quota_mb` 是明確的 CloakBrowser identity input，不再藏在 `extra_args`。它只影響 `cloakbrowser` runtime；`camoufox` profile 不會讀取這些設定。若 Windows VM 環境出現 `GPU process isn't usable` 或 `Unable to create cache` 這類 Chromium 啟動錯誤，可使用：
 

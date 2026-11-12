@@ -29,3 +29,32 @@ func TestLoadTrimsPublicBaseURLFromConfig(t *testing.T) {
 		t.Fatalf("PublicBaseURL = %q", cfg.PublicBaseURL)
 	}
 }
+
+func TestLoadEndpointHealthConfig(t *testing.T) {
+	path := t.TempDir() + "/config.json"
+	if err := os.WriteFile(path, []byte(`{
+		"endpoint_health": {
+			"timeout_ms": 15000,
+			"attempts": 2,
+			"retry_delay_ms": 500,
+			"probe_page": false,
+			"history_limit": 256
+		}
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EndpointHealth == nil {
+		t.Fatal("EndpointHealth = nil")
+	}
+	if cfg.EndpointHealth.TimeoutMS != 15000 ||
+		cfg.EndpointHealth.Attempts != 2 ||
+		cfg.EndpointHealth.RetryDelayMS != 500 ||
+		cfg.EndpointHealth.ProbePage ||
+		cfg.EndpointHealth.HistoryLimit != 256 {
+		t.Fatalf("EndpointHealth = %#v", cfg.EndpointHealth)
+	}
+}

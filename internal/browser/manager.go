@@ -1,44 +1,55 @@
 package browser
 
 import (
-	"fmt"
-	"log/slog"
-	"sync"
-
 	"browseforge/internal/config"
 	"browseforge/internal/groups"
 	"browseforge/internal/profile"
 	bfruntime "browseforge/internal/runtime"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/mxschmitt/playwright-go"
 )
 
 // Session represents a running browser profile
 type Session struct {
-	ID             string
-	ProfileID      string
-	RuntimeID      string
-	Browser        playwright.Browser
-	Context        playwright.BrowserContext
-	Page           playwright.Page
-	relay          *SOCKS5Relay
-	ConnectURL     string // Bind endpoint for external Playwright clients
-	ProfileDir     string
-	UserDataDir    string
-	ExecutablePath string
+	ID                  string
+	LaunchID            string
+	ProfileID           string
+	RuntimeID           string
+	Browser             playwright.Browser
+	Context             playwright.BrowserContext
+	Page                playwright.Page
+	relay               *SOCKS5Relay
+	ConnectURL          string // Bind endpoint for external Playwright clients
+	ProfileDir          string
+	UserDataDir         string
+	ExecutablePath      string
+	CreatedAt           time.Time
+	HealthStatus        string
+	HealthAttempts      int
+	LastHealthAt        time.Time
+	LastHealthLatencyMS int64
 }
 
 // Manager handles browser instances (multi-instance: one process per profile)
 type Manager struct {
-	cfg                     *config.Config
-	groupStore              *groups.Store
-	runtimes                *bfruntime.Registry
-	pw                      *playwright.Playwright
-	mu                      sync.RWMutex
-	sessions                map[string]*Session // sessionID → Session
-	endpointHealthTimeoutMS float64
-	bindSessionEndpoint     func(*Session) (string, error)
-	endpointHealthCheck     func(string, float64) error
+	cfg                  *config.Config
+	groupStore           *groups.Store
+	runtimes             *bfruntime.Registry
+	pw                   *playwright.Playwright
+	mu                   sync.RWMutex
+	eventsMu             sync.RWMutex
+	sessions             map[string]*Session // sessionID → Session
+	endpointHealthPolicy EndpointHealthPolicy
+	bindSessionEndpoint  func(*Session) (string, error)
+	endpointHealthCheck  func(string, float64, bool) error
+	sessionEvents        []SessionLifecycleEvent
+	sessionEventStart    int
+	nextEventSequence    uint64
+	nextLaunchSequence   uint64
 }
 
 // InstallPlaywrightDriver installs the Playwright control driver without
@@ -64,12 +75,12 @@ func NewManager(cfg *config.Config, groupStores ...*groups.Store) (*Manager, err
 		groupStore = groupStores[0]
 	}
 	m := &Manager{
-		cfg:                     cfg,
-		groupStore:              groupStore,
-		runtimes:                bfruntime.NewRegistry(cfg),
-		pw:                      pw,
-		sessions:                make(map[string]*Session),
-		endpointHealthTimeoutMS: defaultEndpointHealthTimeoutMS,
+		cfg:                  cfg,
+		groupStore:           groupStore,
+		runtimes:             bfruntime.NewRegistry(cfg),
+		pw:                   pw,
+		sessions:             make(map[string]*Session),
+		endpointHealthPolicy: endpointHealthPolicyFromConfig(cfg.EndpointHealth),
 	}
 	m.recoverOrphanSessions()
 	return m, nil
@@ -112,26 +123,42 @@ func (m *Manager) LaunchSession(p *profile.Profile) (*Session, error) {
 	var lastErr error
 	for attempt := 1; attempt <= 2; attempt++ {
 		session, err := m.launchProfile(p)
+		if session != nil {
+			m.assignLaunchIDLocked(session)
+			m.recordSessionEventLocked(session, "browser_launched", sessionEventDetails{attempt: attempt})
+		}
 		if err == nil {
 			err = m.prepareSessionEndpoint(p, session, attempt)
 		}
 		if err == nil {
+			m.observeBrowserLifecycle(session)
 			m.sessions[session.ID] = session
-			slog.Info("session launched", "session", session.ID, "profile", p.ID, "runtime_id", session.RuntimeID, "connectURL", session.ConnectURL, "profileDir", session.ProfileDir, "userDataDir", session.UserDataDir, "executablePath", session.ExecutablePath)
+			m.recordSessionEventLocked(session, "session_registered", sessionEventDetails{attempt: attempt})
+			slog.Info("session launched", "session", session.ID, "launch_id", session.LaunchID, "profile", p.ID, "runtime_id", session.RuntimeID, "connectURL", session.ConnectURL, "profileDir", session.ProfileDir, "userDataDir", session.UserDataDir, "executablePath", session.ExecutablePath)
 			return session, nil
 		}
 
 		lastErr = err
 		if session != nil {
+			m.recordSessionEventLocked(session, "session_launch_failed", sessionEventDetails{attempt: attempt, code: ErrorCode(err), message: err.Error()})
 			m.closeSessionResources(session, "failed launch attempt")
 		}
 		if attempt == 1 && shouldRetryLaunchAttempt(err) {
 			slog.Warn("browser launch endpoint failed; restarting Playwright and retrying", "profile", p.ID, "runtime_id", p.RuntimeID, "attempt", attempt, "code", ErrorCode(err), "error", err)
+			if session != nil {
+				m.recordSessionEventLocked(session, "playwright_restart_started", sessionEventDetails{attempt: attempt, code: ErrorCode(err), reason: "launch endpoint failure"})
+			}
 			if len(m.sessions) > 0 {
 				m.dropSessionsLocked("playwright driver restart after launch endpoint failure")
 			}
 			if restartErr := m.restartPlaywright(); restartErr != nil {
+				if session != nil {
+					m.recordSessionEventLocked(session, "playwright_restart_failed", sessionEventDetails{attempt: attempt, message: restartErr.Error()})
+				}
 				return nil, fmt.Errorf("%w; playwright restart failed: %v", err, restartErr)
+			}
+			if session != nil {
+				m.recordSessionEventLocked(session, "playwright_restarted", sessionEventDetails{attempt: attempt})
 			}
 			continue
 		}
@@ -162,8 +189,6 @@ func (m *Manager) launchProfile(p *profile.Profile) (*Session, error) {
 	}
 }
 
-const defaultEndpointHealthTimeoutMS = 5000
-
 func (m *Manager) prepareSessionEndpoint(p *profile.Profile, session *Session, attempt int) error {
 	if session == nil {
 		return codedError{code: "LAUNCH_FAILED", err: fmt.Errorf("browser launcher returned nil session")}
@@ -171,12 +196,28 @@ func (m *Manager) prepareSessionEndpoint(p *profile.Profile, session *Session, a
 	endpoint, err := m.bindExternalEndpoint(session)
 	if err != nil {
 		wrapped := codedError{code: "BROWSER_BIND_FAILED", err: fmt.Errorf("bind Playwright endpoint: %w", err)}
-		slog.Warn("session endpoint bind failed", "session", session.ID, "profile", p.ID, "runtime_id", session.RuntimeID, "attempt", attempt, "profileDir", session.ProfileDir, "userDataDir", session.UserDataDir, "executablePath", session.ExecutablePath, "error", wrapped)
+		m.recordSessionEventLocked(session, "endpoint_bind_failed", sessionEventDetails{attempt: attempt, code: wrapped.code, message: wrapped.Error()})
+		slog.Warn("session endpoint bind failed", "session", session.ID, "launch_id", session.LaunchID, "profile", p.ID, "runtime_id", session.RuntimeID, "attempt", attempt, "profileDir", session.ProfileDir, "userDataDir", session.UserDataDir, "executablePath", session.ExecutablePath, "error", wrapped)
 		return wrapped
 	}
 	session.ConnectURL = endpoint
-	slog.Info("session endpoint bound", "session", session.ID, "profile", p.ID, "runtime_id", session.RuntimeID, "attempt", attempt, "connectURL", endpoint, "profileDir", session.ProfileDir, "userDataDir", session.UserDataDir, "executablePath", session.ExecutablePath)
+	m.recordSessionEventLocked(session, "endpoint_bound", sessionEventDetails{attempt: attempt})
+	slog.Info("session endpoint bound", "session", session.ID, "launch_id", session.LaunchID, "profile", p.ID, "runtime_id", session.RuntimeID, "attempt", attempt, "connectURL", endpoint, "profileDir", session.ProfileDir, "userDataDir", session.UserDataDir, "executablePath", session.ExecutablePath)
 	return m.validateSessionEndpoint(p, session, "launch")
+}
+
+func (m *Manager) observeBrowserLifecycle(session *Session) {
+	if session == nil || session.Context == nil {
+		return
+	}
+	launchedBrowser := session.Context.Browser()
+	if launchedBrowser == nil {
+		return
+	}
+	launchedBrowser.OnDisconnected(func(playwright.Browser) {
+		m.recordSessionEventLocked(session, "browser_disconnected", sessionEventDetails{message: "browser process closed or Playwright disconnected"})
+		slog.Warn("session browser disconnected", "session", session.ID, "launch_id", session.LaunchID, "profile", session.ProfileID, "runtime_id", session.RuntimeID, "connectURL", session.ConnectURL)
+	})
 }
 
 func (m *Manager) bindExternalEndpoint(session *Session) (string, error) {
@@ -202,25 +243,45 @@ func (m *Manager) bindExternalEndpoint(session *Session) (string, error) {
 
 func (m *Manager) validateSessionEndpoint(p *profile.Profile, session *Session, stage string) error {
 	if session.ConnectURL == "" {
-		return codedError{code: "ENDPOINT_UNHEALTHY", err: fmt.Errorf("session %s has no Playwright endpoint", session.ID)}
+		err := codedError{code: "ENDPOINT_UNHEALTHY", err: fmt.Errorf("session %s has no Playwright endpoint", session.ID)}
+		m.recordSessionEventLocked(session, "endpoint_health_failed", sessionEventDetails{stage: stage, code: err.code, message: err.Error()})
+		return err
 	}
-	timeoutMS := m.endpointHealthTimeoutMS
-	if timeoutMS <= 0 {
-		timeoutMS = defaultEndpointHealthTimeoutMS
-	}
-	if err := m.checkEndpointHealth(session, timeoutMS); err != nil {
+
+	policy := m.endpointHealthPolicy
+	var lastErr error
+	for attempt := 1; attempt <= policy.Attempts; attempt++ {
+		started := time.Now()
+		session.HealthAttempts = attempt
+		m.recordSessionEventLocked(session, "endpoint_health_started", sessionEventDetails{stage: stage, attempt: attempt})
+		err := m.checkEndpointHealth(session, float64(policy.TimeoutMS), policy.ProbePage)
+		durationMS := time.Since(started).Milliseconds()
+		session.LastHealthAt = time.Now().UTC()
+		session.LastHealthLatencyMS = durationMS
+		if err == nil {
+			session.HealthStatus = "healthy"
+			m.recordSessionEventLocked(session, "endpoint_healthy", sessionEventDetails{stage: stage, attempt: attempt, durationMS: durationMS})
+			slog.Info("session endpoint healthy", "session", session.ID, "launch_id", session.LaunchID, "profile", p.ID, "runtime_id", session.RuntimeID, "stage", stage, "attempt", attempt, "connectURL", session.ConnectURL, "timeoutMS", policy.TimeoutMS, "durationMS", durationMS, "probePage", policy.ProbePage)
+			return nil
+		}
+
+		lastErr = err
 		code := classifyEndpointHealthError(err)
-		wrapped := codedError{code: code, err: fmt.Errorf("Playwright endpoint health check failed: %w", err)}
-		slog.Warn("session endpoint health failed", "session", session.ID, "profile", p.ID, "runtime_id", session.RuntimeID, "stage", stage, "connectURL", session.ConnectURL, "timeoutMS", timeoutMS, "code", code, "profileDir", session.ProfileDir, "userDataDir", session.UserDataDir, "executablePath", session.ExecutablePath, "error", wrapped)
-		return wrapped
+		session.HealthStatus = "unhealthy"
+		m.recordSessionEventLocked(session, "endpoint_health_failed", sessionEventDetails{stage: stage, attempt: attempt, code: code, durationMS: durationMS, message: err.Error()})
+		slog.Warn("session endpoint health failed", "session", session.ID, "launch_id", session.LaunchID, "profile", p.ID, "runtime_id", session.RuntimeID, "stage", stage, "attempt", attempt, "attempts", policy.Attempts, "connectURL", session.ConnectURL, "timeoutMS", policy.TimeoutMS, "durationMS", durationMS, "probePage", policy.ProbePage, "code", code, "willRetry", attempt < policy.Attempts, "profileDir", session.ProfileDir, "userDataDir", session.UserDataDir, "executablePath", session.ExecutablePath, "error", err)
+		if attempt < policy.Attempts {
+			time.Sleep(time.Duration(policy.RetryDelayMS) * time.Millisecond)
+		}
 	}
-	slog.Info("session endpoint healthy", "session", session.ID, "profile", p.ID, "runtime_id", session.RuntimeID, "stage", stage, "connectURL", session.ConnectURL, "timeoutMS", timeoutMS)
-	return nil
+
+	code := classifyEndpointHealthError(lastErr)
+	return codedError{code: code, err: fmt.Errorf("Playwright endpoint health check failed after %d attempts: %w", policy.Attempts, lastErr)}
 }
 
-func (m *Manager) checkEndpointHealth(session *Session, timeoutMS float64) error {
+func (m *Manager) checkEndpointHealth(session *Session, timeoutMS float64, probePage bool) error {
 	if m.endpointHealthCheck != nil {
-		return m.endpointHealthCheck(session.ConnectURL, timeoutMS)
+		return m.endpointHealthCheck(session.ConnectURL, timeoutMS, probePage)
 	}
 	if m.pw == nil {
 		return fmt.Errorf("playwright driver is not running")
@@ -239,6 +300,9 @@ func (m *Manager) checkEndpointHealth(session *Session, timeoutMS float64) error
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer connected.Close()
+	if !probePage {
+		return nil
+	}
 	page, err := connected.NewPage(endpointHealthNewPageOptions(session.RuntimeID)...)
 	if err != nil {
 		return fmt.Errorf("new page: %w", err)
@@ -260,20 +324,24 @@ func (m *Manager) closeSessionResources(s *Session, reason string) {
 	if s == nil {
 		return
 	}
+	m.recordSessionEventLocked(s, "session_close_started", sessionEventDetails{reason: reason})
 	if s.Context != nil {
 		if err := s.Context.Close(); err != nil {
-			slog.Warn("session context close failed", "session", s.ID, "reason", reason, "error", err)
+			m.recordSessionEventLocked(s, "session_context_close_failed", sessionEventDetails{reason: reason, message: err.Error()})
+			slog.Warn("session context close failed", "session", s.ID, "launch_id", s.LaunchID, "reason", reason, "error", err)
 		}
 	}
 	if s.Browser != nil {
 		if err := s.Browser.Close(); err != nil {
-			slog.Warn("session browser close failed", "session", s.ID, "reason", reason, "error", err)
+			m.recordSessionEventLocked(s, "session_browser_close_failed", sessionEventDetails{reason: reason, message: err.Error()})
+			slog.Warn("session browser close failed", "session", s.ID, "launch_id", s.LaunchID, "reason", reason, "error", err)
 		}
 	}
 	if s.relay != nil {
 		s.relay.Close()
 	}
-	slog.Info("session resources closed", "session", s.ID, "reason", reason, "profile", s.ProfileID, "runtime_id", s.RuntimeID, "connectURL", s.ConnectURL)
+	m.recordSessionEventLocked(s, "session_closed", sessionEventDetails{reason: reason})
+	slog.Info("session resources closed", "session", s.ID, "launch_id", s.LaunchID, "reason", reason, "profile", s.ProfileID, "runtime_id", s.RuntimeID, "connectURL", s.ConnectURL)
 }
 
 func (m *Manager) effectiveProxy(p *profile.Profile) groups.EffectiveProxy {
@@ -303,11 +371,9 @@ func (m *Manager) restartPlaywright() error {
 
 func (m *Manager) dropSessionsLocked(reason string) {
 	for id, s := range m.sessions {
-		if s.relay != nil {
-			s.relay.Close()
-		}
+		m.closeSessionResources(s, reason)
 		delete(m.sessions, id)
-		slog.Warn("session dropped", "session", id, "reason", reason)
+		slog.Warn("session dropped", "session", id, "launch_id", s.LaunchID, "reason", reason)
 	}
 }
 
@@ -321,7 +387,7 @@ func (m *Manager) GetSession(id string) (*Session, bool) {
 func (m *Manager) ListSessions() []*Session {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var result []*Session
+	result := make([]*Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
 		result = append(result, s)
 	}
@@ -335,17 +401,9 @@ func (m *Manager) CloseSession(id string) error {
 	if !ok {
 		return fmt.Errorf("session not found: %s", id)
 	}
-	if s.Context != nil {
-		s.Context.Close()
-	}
-	if s.Browser != nil {
-		s.Browser.Close()
-	}
-	if s.relay != nil {
-		s.relay.Close()
-	}
+	m.closeSessionResources(s, "client_request")
 	delete(m.sessions, id)
-	slog.Info("session closed", "session", id)
+	slog.Info("session closed", "session", id, "launch_id", s.LaunchID)
 	return nil
 }
 
@@ -353,12 +411,7 @@ func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, s := range m.sessions {
-		if s.Context != nil {
-			s.Context.Close()
-		}
-		if s.relay != nil {
-			s.relay.Close()
-		}
+		m.closeSessionResources(s, "manager_shutdown")
 		delete(m.sessions, id)
 	}
 	if m.pw != nil {

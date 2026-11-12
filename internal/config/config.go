@@ -18,9 +18,20 @@ type Config struct {
 	DefaultRuntimeID string                   `json:"default_runtime_id,omitempty"`
 	Runtimes         map[string]RuntimeConfig `json:"runtimes,omitempty"`
 	FingerprintDir   string                   `json:"fingerprint_dir"`
+	EndpointHealth   *EndpointHealthConfig    `json:"endpoint_health,omitempty"`
 	Humanize         *HumanizeConfig          `json:"humanize,omitempty"`
 	APIToken         string                   `json:"-"` // generated at runtime
 	Version          string                   `json:"-"` // set from main
+}
+
+// EndpointHealthConfig controls Playwright Bind endpoint validation and the
+// bounded in-memory lifecycle history exposed to operators.
+type EndpointHealthConfig struct {
+	TimeoutMS    int  `json:"timeout_ms,omitempty"`
+	Attempts     int  `json:"attempts,omitempty"`
+	RetryDelayMS int  `json:"retry_delay_ms,omitempty"`
+	ProbePage    bool `json:"probe_page,omitempty"`
+	HistoryLimit int  `json:"history_limit,omitempty"`
 }
 
 // CloakBrowserConfig controls Chromium/CloakBrowser launch compatibility.

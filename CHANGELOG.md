@@ -4,6 +4,18 @@ All notable changes should be documented here. This project follows semantic ver
 
 ## Unreleased
 
+## v2.1.16 - 2026-11-12
+
+### Added
+
+- Added authenticated session lifecycle diagnostics with launch correlation IDs, runtime IDs, endpoint attempts and latency, browser disconnect events, Playwright restart events, cleanup reasons, and bounded postmortem filtering.
+- Added configurable endpoint health timeout, retry count, retry delay, optional strict page probing, and event history limits.
+
+### Fixed
+
+- Changed endpoint health validation to connect-only by default so readiness checks no longer open visible diagnostic tabs.
+- Retry the same runtime child endpoint before cleanup and close every dropped session resource instead of amplifying failures through immediate child replacement.
+
 ## v2.1.15 - 2026-09-29
 
 ### Fixed
