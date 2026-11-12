@@ -25,10 +25,9 @@ const (
 
 // SessionPool manages agent web_search/web_explore sessions.
 //
-// Design:
 //   - browser.Manager owns one browser runtime per profile.
 //   - Agent session support is selected by runtime capability, not legacy engine name.
-//   - SessionPool connects to that endpoint and creates one independent Page per agent session.
+//   - Each session exposes a gated Playwright Bind endpoint for agent pages.
 //   - GC only closes per-agent pages; it never closes the profile browser.
 type SessionPool struct {
 	mu            sync.RWMutex
@@ -407,6 +406,8 @@ func (sp *SessionPool) ensureProfilePool(profileID string) (*profile.Profile, *P
 		return p, pool, nil
 	}
 	sp.mu.RUnlock()
+
+	sp.mgr.WaitForEndpointBindGrace(browserSession, "mcp")
 
 	sp.mu.Lock()
 	pool, ok = sp.pools[profileID]

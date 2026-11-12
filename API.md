@@ -55,13 +55,14 @@ curl http://127.0.0.1:19280/api/status
 
 ```json
 {
-  "version": "2.1.17",
+  "version": "2.1.18",
   "status": "ok",
   "active_sessions": 1,
   "endpoint_health_policy": {
     "timeout_ms": 15000,
     "attempts": 2,
     "retry_delay_ms": 500,
+    "bind_grace_ms": 100,
     "probe_page": false,
     "history_limit": 256
   }
@@ -451,16 +452,28 @@ curl -X POST http://127.0.0.1:19280/api/restore \
 
 ### GET `/api/playwright/endpoint`
 
-Lists Playwright-compatible endpoints for active sessions.
+Lists the authenticated `proxy` and `bind_grace_ms` for active sessions. Raw Bind endpoints are internal diagnostics and are not returned.
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:19280/api/playwright/endpoint
 ```
 
+```json
+{
+  "data": [{
+    "session_id": "sess_prof_abc123",
+    "profile_id": "prof_abc123",
+    "runtime_id": "cloakbrowser",
+    "proxy": "ws://127.0.0.1:19280/api/playwright/ws/sess_prof_abc123",
+    "bind_grace_ms": 100
+  }]
+}
+```
+
 ### WebSocket `/api/playwright/ws/{session_id}`
 
-Proxy endpoint for external Playwright clients.
+Authenticated proxy endpoint for local and remote Playwright clients. It delays backend attachment until the configured Bind grace has elapsed and records proxy lifecycle diagnostics.
 
 ```javascript
 import { firefox } from 'playwright';
@@ -473,7 +486,8 @@ const browser = await firefox.connect(
 
 Compatibility notes:
 
-- Use Playwright client `1.60.x`.
+- Use Playwright client `1.61.x`.
+- Use the returned `proxy` URL for all integrations; raw Bind endpoints are internal.
 - Proxy mode requires only port `19280`.
 - Bearer token authentication is required.
 

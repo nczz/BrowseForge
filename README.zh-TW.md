@@ -91,7 +91,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.17
+  ghcr.io/nczz/browseforge:v2.1.18
 ```
 
 `./browseforge/` host 目錄就是持久化 runtime。之後 pull 新 image 或重建 container 時沿用這組 mounts，profiles、token、browser data、logs、backups 都會保留。
@@ -189,6 +189,7 @@ Agent 與 CI 整合建議對 `token`、`doctor`、`capabilities`、`smoke` 使�
     "timeout_ms": 15000,
     "attempts": 2,
     "retry_delay_ms": 500,
+    "bind_grace_ms": 100,
     "probe_page": false,
     "history_limit": 256
   },
@@ -249,10 +250,11 @@ Agent 與 CI 整合建議對 `token`、`doctor`、`capabilities`、`smoke` 使�
 | `profiles_dir` | Profile 資料目錄 | `profiles` |
 | `data_dir` | token、指紋池資料目錄 | `data` |
 | `log_file` | 日誌檔案 | `logs/server.log` |
-| `endpoint_health.timeout_ms` | 每次 Playwright Bind connect probe 的 timeout，上限 120000 | `15000` |
-| `endpoint_health.attempts` | 清理或重啟前，對同一個 runtime child 執行的檢查次數，上限 5 | `2` |
+| `endpoint_health.timeout_ms` | Playwright proxy backend 連線與 handshake 的 timeout，上限 120000 | `15000` |
+| `endpoint_health.attempts` | 清理或重啟前，對同一個 runtime child 執行不建立額外連線的健康檢查次數，上限 5 | `2` |
 | `endpoint_health.retry_delay_ms` | endpoint 檢查之間的等待時間，上限 30000 | `500` |
-| `endpoint_health.probe_page` | 額外建立並關閉診斷頁面；建議維持關閉，避免 health check 產生可見分頁 | `false` |
+| `endpoint_health.bind_grace_ms` | Proxy 或 MCP 連入前，Bind endpoint 必須存在的最短時間，上限 5000 | `100` |
+| `endpoint_health.probe_page` | 額外讀取既有 session page 的 title；不建立新頁面或 client connection | `false` |
 | `endpoint_health.history_limit` | diagnostics API 保留的記憶體內 session lifecycle events，上限 2000 | `256` |
 | `default_runtime_id` | 產生 config 與 UI flow 預設選取的 runtime | `camoufox` |
 | `runtimes.<id>.enabled` | runtime provider 是否可供建立 profile 與啟動 | 依 runtime 而定 |
@@ -360,7 +362,7 @@ Token 會在首次啟動時自動建立，存放於 `data/.api-token`。
 
 ## Playwright Connect
 
-BrowseForge 可以為每個執行中的 session 暴露 Playwright-compatible WebSocket endpoint。
+BrowseForge 會為每個執行中的 session 暴露經 Bearer token 驗證且有 Bind handoff gate 的 Playwright WebSocket proxy。所有本機與遠端整合都必須使用回傳的 `proxy` URL；raw Bind endpoint 僅保留於內部 diagnostics。
 
 ```bash
 curl http://127.0.0.1:19280/api/playwright/endpoint \
@@ -387,9 +389,10 @@ await browser.close();
 
 | 項目 | 說明 |
 |------|------|
-| Client 版本 | 需使用與 BrowseForge driver 相容的 Playwright client；目前目標是 `1.60.x` |
+| Client 版本 | 需使用與 BrowseForge driver 相容的 Playwright client；目前目標是 `1.61.x` |
+| 連線 URL | 使用 `/api/playwright/endpoint` 回傳的 `proxy`；raw Bind endpoint 僅供內部診斷 |
 | Docker | Proxy 模式只需暴露 `19280` |
-| 驗證 | Proxy 模式使用 Bearer Token |
+| 驗證 | Proxy 模式必須使用 Bearer Token |
 | 反偵測 runtime | 使用 Playwright 內部協議，不暴露 CDP |
 
 ## YAML Workflow

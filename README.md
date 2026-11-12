@@ -91,7 +91,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.17
+  ghcr.io/nczz/browseforge:v2.1.18
 ```
 
 The `./browseforge/` host directory is the durable runtime. Reusing these mounts when pulling a new image or recreating the container preserves profiles, tokens, browser data, logs, and backups.
@@ -189,6 +189,7 @@ BrowseForge creates `config.json` on first launch:
     "timeout_ms": 15000,
     "attempts": 2,
     "retry_delay_ms": 500,
+    "bind_grace_ms": 100,
     "probe_page": false,
     "history_limit": 256
   },
@@ -249,10 +250,11 @@ BrowseForge creates `config.json` on first launch:
 | `profiles_dir` | Profile data directory | `profiles` |
 | `data_dir` | Token and fingerprint data directory | `data` |
 | `log_file` | Server log file | `logs/server.log` |
-| `endpoint_health.timeout_ms` | Timeout for each Playwright Bind connect probe; capped at 120000 | `15000` |
-| `endpoint_health.attempts` | Checks against the same runtime child before cleanup/relaunch; capped at 5 | `2` |
+| `endpoint_health.timeout_ms` | Timeout for Playwright proxy backend connect and handshake operations; capped at 120000 | `15000` |
+| `endpoint_health.attempts` | Non-consuming connectivity checks against the same runtime child before cleanup/relaunch; capped at 5 | `2` |
 | `endpoint_health.retry_delay_ms` | Delay between endpoint checks; capped at 30000 | `500` |
-| `endpoint_health.probe_page` | Also create and close a diagnostic page. Keep disabled to avoid visible health-check tabs. | `false` |
+| `endpoint_health.bind_grace_ms` | Minimum Bind endpoint age before the proxy or MCP attaches; capped at 5000 | `100` |
+| `endpoint_health.probe_page` | Also read the existing session page title. No extra page or client connection is created. | `false` |
 | `endpoint_health.history_limit` | In-memory session lifecycle events exposed by the diagnostics API; capped at 2000 | `256` |
 | `default_runtime_id` | Default runtime selected by generated config and UI flows | `camoufox` |
 | `runtimes.<id>.enabled` | Whether a runtime provider is available for profile creation/launch | Runtime-specific |
@@ -361,7 +363,7 @@ See [API.md](API.md) for the full API reference.
 
 ## Playwright Connect
 
-BrowseForge can expose a Playwright-compatible WebSocket endpoint for each running session.
+BrowseForge exposes an authenticated, gated Playwright WebSocket proxy for each running session. All local and remote integrations must use the returned `proxy` URL; raw Bind endpoints remain internal diagnostics.
 
 ```bash
 curl http://127.0.0.1:19280/api/playwright/endpoint \
@@ -388,9 +390,10 @@ Compatibility:
 
 | Item | Policy |
 |------|--------|
-| Client version | Use a Playwright client compatible with BrowseForge's driver. Current target: Playwright `1.60.x`. |
+| Client version | Use a Playwright client compatible with BrowseForge's driver. Current target: Playwright `1.61.x`. |
+| Connection URL | Use the `proxy` URL returned by `/api/playwright/endpoint`; raw Bind endpoints are internal. |
 | Docker | Expose only `19280` for Playwright proxy mode. |
-| Authentication | Bearer token in proxy mode. |
+| Authentication | Bearer token is required in proxy mode. |
 | Anti-detect runtime | Playwright connect uses the internal Playwright protocol and does not expose CDP. |
 
 ## YAML Workflows

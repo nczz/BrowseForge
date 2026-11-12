@@ -10,19 +10,22 @@ const (
 	defaultEndpointHealthTimeoutMS    = 15000
 	defaultEndpointHealthAttempts     = 2
 	defaultEndpointHealthRetryDelayMS = 500
+	defaultEndpointBindGraceMS        = 100
 	defaultSessionEventHistoryLimit   = 256
 	maxEndpointHealthTimeoutMS        = 120000
 	maxEndpointHealthAttempts         = 5
 	maxEndpointHealthRetryDelayMS     = 30000
+	maxEndpointBindGraceMS            = 5000
 	maxSessionEventHistoryLimit       = 2000
 )
 
-// EndpointHealthPolicy describes how BrowseForge validates a Playwright Bind
-// endpoint before exposing the session to external clients.
+// EndpointHealthPolicy controls non-consuming session validation, the minimum
+// delay before attaching to a new Playwright Bind endpoint, and diagnostics.
 type EndpointHealthPolicy struct {
 	TimeoutMS    int  `json:"timeout_ms"`
 	Attempts     int  `json:"attempts"`
 	RetryDelayMS int  `json:"retry_delay_ms"`
+	BindGraceMS  int  `json:"bind_grace_ms"`
 	ProbePage    bool `json:"probe_page"`
 	HistoryLimit int  `json:"history_limit"`
 }
@@ -62,11 +65,12 @@ type sessionEventDetails struct {
 	message    string
 }
 
-func endpointHealthPolicy(cfgTimeoutMS, cfgAttempts, cfgRetryDelayMS int, probePage bool, cfgHistoryLimit int) EndpointHealthPolicy {
+func endpointHealthPolicy(cfgTimeoutMS, cfgAttempts, cfgRetryDelayMS, cfgBindGraceMS int, probePage bool, cfgHistoryLimit int) EndpointHealthPolicy {
 	policy := EndpointHealthPolicy{
 		TimeoutMS:    cfgTimeoutMS,
 		Attempts:     cfgAttempts,
 		RetryDelayMS: cfgRetryDelayMS,
+		BindGraceMS:  cfgBindGraceMS,
 		ProbePage:    probePage,
 		HistoryLimit: cfgHistoryLimit,
 	}
@@ -85,11 +89,17 @@ func endpointHealthPolicy(cfgTimeoutMS, cfgAttempts, cfgRetryDelayMS int, probeP
 	if policy.Attempts > maxEndpointHealthAttempts {
 		policy.Attempts = maxEndpointHealthAttempts
 	}
+	if policy.BindGraceMS <= 0 {
+		policy.BindGraceMS = defaultEndpointBindGraceMS
+	}
 	if policy.RetryDelayMS > maxEndpointHealthRetryDelayMS {
 		policy.RetryDelayMS = maxEndpointHealthRetryDelayMS
 	}
 	if policy.HistoryLimit <= 0 {
 		policy.HistoryLimit = defaultSessionEventHistoryLimit
+	}
+	if policy.BindGraceMS > maxEndpointBindGraceMS {
+		policy.BindGraceMS = maxEndpointBindGraceMS
 	}
 	if policy.HistoryLimit > maxSessionEventHistoryLimit {
 		policy.HistoryLimit = maxSessionEventHistoryLimit
@@ -99,13 +109,53 @@ func endpointHealthPolicy(cfgTimeoutMS, cfgAttempts, cfgRetryDelayMS int, probeP
 
 func endpointHealthPolicyFromConfig(raw *config.EndpointHealthConfig) EndpointHealthPolicy {
 	if raw == nil {
-		return endpointHealthPolicy(0, 0, 0, false, 0)
+		return endpointHealthPolicy(0, 0, 0, 0, false, 0)
 	}
-	return endpointHealthPolicy(raw.TimeoutMS, raw.Attempts, raw.RetryDelayMS, raw.ProbePage, raw.HistoryLimit)
+	return endpointHealthPolicy(raw.TimeoutMS, raw.Attempts, raw.RetryDelayMS, raw.BindGraceMS, raw.ProbePage, raw.HistoryLimit)
 }
 
 func (m *Manager) EndpointHealthPolicy() EndpointHealthPolicy {
 	return m.endpointHealthPolicy
+}
+
+func endpointBindGraceRemaining(boundAt time.Time, bindGraceMS int, now time.Time) time.Duration {
+	if boundAt.IsZero() || bindGraceMS <= 0 {
+		return 0
+	}
+	remaining := boundAt.Add(time.Duration(bindGraceMS) * time.Millisecond).Sub(now)
+	if remaining <= 0 {
+		return 0
+	}
+	return remaining
+}
+
+// WaitForEndpointBindGrace prevents consumers from attaching during the
+// short Playwright Bind handoff window observed on Windows.
+func (m *Manager) WaitForEndpointBindGrace(session *Session, stage string) time.Duration {
+	if session == nil {
+		return 0
+	}
+	wait := endpointBindGraceRemaining(session.EndpointBoundAt, m.endpointHealthPolicy.BindGraceMS, time.Now())
+	if wait <= 0 {
+		return 0
+	}
+	time.Sleep(wait)
+	m.recordSessionEventLocked(session, "endpoint_bind_grace_waited", sessionEventDetails{
+		stage:      stage,
+		durationMS: wait.Milliseconds(),
+	})
+	return wait
+}
+
+// RecordSessionProxyEvent adds proxy lifecycle evidence to the same bounded
+// history used by browser launch diagnostics.
+func (m *Manager) RecordSessionProxyEvent(session *Session, eventName, code, message string, duration time.Duration) {
+	m.recordSessionEventLocked(session, eventName, sessionEventDetails{
+		stage:      "proxy",
+		code:       code,
+		durationMS: duration.Milliseconds(),
+		message:    message,
+	})
 }
 
 // SessionEvents returns newest events first so the most recent failure is

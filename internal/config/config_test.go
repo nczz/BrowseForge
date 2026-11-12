@@ -37,6 +37,7 @@ func TestLoadEndpointHealthConfig(t *testing.T) {
 			"timeout_ms": 15000,
 			"attempts": 2,
 			"retry_delay_ms": 500,
+			"bind_grace_ms": 100,
 			"probe_page": false,
 			"history_limit": 256
 		}
@@ -53,6 +54,7 @@ func TestLoadEndpointHealthConfig(t *testing.T) {
 	if cfg.EndpointHealth.TimeoutMS != 15000 ||
 		cfg.EndpointHealth.Attempts != 2 ||
 		cfg.EndpointHealth.RetryDelayMS != 500 ||
+		cfg.EndpointHealth.BindGraceMS != 100 ||
 		cfg.EndpointHealth.ProbePage ||
 		cfg.EndpointHealth.HistoryLimit != 256 {
 		t.Fatalf("EndpointHealth = %#v", cfg.EndpointHealth)

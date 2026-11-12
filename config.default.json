@@ -9,6 +9,7 @@
     "timeout_ms": 15000,
     "attempts": 2,
     "retry_delay_ms": 500,
+    "bind_grace_ms": 100,
     "probe_page": false,
     "history_limit": 256
   },

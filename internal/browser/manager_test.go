@@ -3,13 +3,13 @@ package browser
 import (
 	"encoding/json"
 	"errors"
-	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"browseforge/internal/config"
@@ -52,7 +52,7 @@ func TestPrepareSessionEndpointRequiresHealthyEndpoint(t *testing.T) {
 	wantEndpoint := "ws://127.0.0.1:12345/bind"
 	m := &Manager{
 		cfg:                  &config.Config{Host: "127.0.0.1"},
-		endpointHealthPolicy: endpointHealthPolicy(1234, 1, 1, false, 32),
+		endpointHealthPolicy: endpointHealthPolicy(1234, 1, 1, 1, false, 32),
 		bindSessionEndpoint: func(s *Session) (string, error) {
 			if s.ID != "sess_prof_health" {
 				t.Fatalf("bind session = %s, want sess_prof_health", s.ID)
@@ -92,7 +92,7 @@ func TestPrepareSessionEndpointStoresHealthyEndpoint(t *testing.T) {
 	healthChecked := false
 	m := &Manager{
 		cfg:                  &config.Config{Host: "127.0.0.1"},
-		endpointHealthPolicy: endpointHealthPolicy(0, 1, 1, false, 32),
+		endpointHealthPolicy: endpointHealthPolicy(0, 1, 1, 1, false, 32),
 		bindSessionEndpoint: func(*Session) (string, error) {
 			return wantEndpoint, nil
 		},
@@ -141,24 +141,10 @@ func TestEndpointHealthErrorClassification(t *testing.T) {
 	}
 }
 
-func TestEndpointHealthUsesNonDestructiveSocketProbe(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer listener.Close()
-
-	m := &Manager{}
-	s := &Session{ConnectURL: "ws://" + listener.Addr().String() + "/bind"}
-	if err := m.checkEndpointHealth(s, 1000, false); err != nil {
-		t.Fatalf("checkEndpointHealth: %v", err)
-	}
-}
-
 func TestValidateSessionEndpointRetriesSameChildBeforeSuccess(t *testing.T) {
 	checks := 0
 	m := &Manager{
-		endpointHealthPolicy: endpointHealthPolicy(2500, 2, 1, false, 32),
+		endpointHealthPolicy: endpointHealthPolicy(2500, 2, 1, 1, false, 32),
 		endpointHealthCheck: func(endpoint string, timeoutMS float64, probePage bool) error {
 			checks++
 			if endpoint != "ws://127.0.0.1:12345/retry" {
@@ -201,7 +187,7 @@ func TestValidateSessionEndpointRetriesSameChildBeforeSuccess(t *testing.T) {
 }
 
 func TestSessionEventsRemainAvailableAfterCloseAndAreBounded(t *testing.T) {
-	m := &Manager{endpointHealthPolicy: endpointHealthPolicy(0, 0, 0, false, 3)}
+	m := &Manager{endpointHealthPolicy: endpointHealthPolicy(0, 0, 0, 0, false, 3)}
 	s := &Session{ID: "sess_prof_history", LaunchID: "launch-history", ProfileID: "prof_history", RuntimeID: string(bfruntime.CloakBrowser)}
 	m.recordSessionEventLocked(s, "browser_launched", sessionEventDetails{})
 	m.closeSessionResources(s, "test_cleanup")
@@ -223,12 +209,14 @@ func TestEndpointHealthPolicyFromConfig(t *testing.T) {
 		TimeoutMS:    maxEndpointHealthTimeoutMS + 1,
 		Attempts:     maxEndpointHealthAttempts + 1,
 		RetryDelayMS: maxEndpointHealthRetryDelayMS + 1,
+		BindGraceMS:  maxEndpointBindGraceMS + 1,
 		ProbePage:    true,
 		HistoryLimit: maxSessionEventHistoryLimit + 1,
 	})
 	if got.TimeoutMS != maxEndpointHealthTimeoutMS ||
 		got.Attempts != maxEndpointHealthAttempts ||
 		got.RetryDelayMS != maxEndpointHealthRetryDelayMS ||
+		got.BindGraceMS != maxEndpointBindGraceMS ||
 		!got.ProbePage ||
 		got.HistoryLimit != maxSessionEventHistoryLimit {
 		t.Fatalf("policy = %#v", got)
@@ -237,9 +225,25 @@ func TestEndpointHealthPolicyFromConfig(t *testing.T) {
 	if defaults.TimeoutMS != defaultEndpointHealthTimeoutMS ||
 		defaults.Attempts != defaultEndpointHealthAttempts ||
 		defaults.RetryDelayMS != defaultEndpointHealthRetryDelayMS ||
+		defaults.BindGraceMS != defaultEndpointBindGraceMS ||
 		defaults.ProbePage ||
 		defaults.HistoryLimit != defaultSessionEventHistoryLimit {
 		t.Fatalf("default policy = %#v", defaults)
+	}
+}
+
+func TestEndpointBindGraceRemaining(t *testing.T) {
+	now := time.Date(2026, time.March, 16, 12, 0, 0, 0, time.UTC)
+	boundAt := now.Add(-40 * time.Millisecond)
+
+	if got := endpointBindGraceRemaining(boundAt, 100, now); got != 60*time.Millisecond {
+		t.Fatalf("remaining grace = %s, want 60ms", got)
+	}
+	if got := endpointBindGraceRemaining(boundAt, 40, now); got != 0 {
+		t.Fatalf("expired grace = %s, want 0", got)
+	}
+	if got := endpointBindGraceRemaining(time.Time{}, 100, now); got != 0 {
+		t.Fatalf("zero bind timestamp grace = %s, want 0", got)
 	}
 }
 

@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"browseforge/internal/browser"
 	"browseforge/internal/humanize"
@@ -363,27 +365,34 @@ func (h *handler) setCookies(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) playwrightEndpoint(w http.ResponseWriter, r *http.Request) {
 	sessions := h.mgr.ListSessions()
-	var endpoints []map[string]string
-	for _, s := range sessions {
-		if s.ConnectURL != "" {
-			entry := map[string]string{
-				"session_id": s.ID,
-				"profile_id": s.ProfileID,
-				"runtime_id": s.RuntimeID,
-				"endpoint":   s.ConnectURL,
-			}
-			if h.cfg.Host != "127.0.0.1" {
-				entry["proxy"] = fmt.Sprintf("ws://%s:%s/api/playwright/ws/%s", h.cfg.Host, h.cfg.Port, s.ID)
-			}
-			endpoints = append(endpoints, entry)
-		}
+	result := make([]map[string]any, 0, len(sessions))
+	scheme := "ws"
+	if r.TLS != nil {
+		scheme = "wss"
 	}
-	writeJSON(w, 200, map[string]any{"data": endpoints})
+	proxyHost := r.Host
+	if proxyHost == "" {
+		proxyHost = net.JoinHostPort(h.cfg.Host, h.cfg.Port)
+	}
+	bindGraceMS := h.mgr.EndpointHealthPolicy().BindGraceMS
+	for _, s := range sessions {
+		if s.ConnectURL == "" {
+			continue
+		}
+		proxyURL := fmt.Sprintf("%s://%s/api/playwright/ws/%s", scheme, proxyHost, s.ID)
+		result = append(result, map[string]any{
+			"session_id":    s.ID,
+			"profile_id":    s.ProfileID,
+			"runtime_id":    s.RuntimeID,
+			"proxy":         proxyURL,
+			"bind_grace_ms": bindGraceMS,
+		})
+	}
+	writeJSON(w, 200, map[string]any{"data": result})
 }
 
-// playwrightWSProxy proxies WebSocket connections to internal Playwright Bind endpoints.
-// Client connects to ws://host:19280/api/playwright/ws/{session_id} with Bearer token.
-// BrowseForge verifies auth then pipes to the internal dynamic-port WebSocket.
+// playwrightWSProxy gates and proxies authenticated WebSocket connections to
+// internal Playwright Bind endpoints for both local and remote clients.
 func (h *handler) playwrightWSProxy(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "id")
 	session, ok := h.mgr.GetSession(sessionID)
@@ -404,9 +413,23 @@ func (h *handler) playwrightWSProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	internalAddr := "127.0.0.1:" + parsed.Port()
-	internalPath := parsed.Path
+	internalPath := parsed.RequestURI()
 
-	// Hijack client connection
+	requestStarted := time.Now()
+	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") || strings.TrimSpace(r.Header.Get("Sec-WebSocket-Key")) == "" {
+		message := "invalid WebSocket upgrade request"
+		h.mgr.RecordSessionProxyEvent(session, "proxy_handshake_failed", "PROXY_INVALID_UPGRADE", message, time.Since(requestStarted))
+		http.Error(w, message, http.StatusBadRequest)
+		return
+	}
+
+	policy := h.mgr.EndpointHealthPolicy()
+	h.mgr.WaitForEndpointBindGrace(session, "proxy")
+	if err := r.Context().Err(); err != nil {
+		h.mgr.RecordSessionProxyEvent(session, "proxy_client_disconnected_before_backend", "PROXY_CLIENT_DISCONNECTED", err.Error(), time.Since(requestStarted))
+		return
+	}
+
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		http.Error(w, "hijack not supported", 500)
@@ -419,47 +442,86 @@ func (h *handler) playwrightWSProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientConn.Close()
 
-	// Dial internal Playwright WebSocket
-	backendConn, err := net.Dial("tcp", internalAddr)
+	h.mgr.RecordSessionProxyEvent(session, "proxy_backend_connect_started", "", "", time.Since(requestStarted))
+	backendStarted := time.Now()
+	backendConn, err := net.DialTimeout("tcp", internalAddr, time.Duration(policy.TimeoutMS)*time.Millisecond)
 	if err != nil {
-		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		duration := time.Since(backendStarted)
+		h.mgr.RecordSessionProxyEvent(session, "proxy_backend_connect_failed", "PROXY_BACKEND_CONNECT_FAILED", err.Error(), duration)
+		slog.Warn("Playwright proxy backend connect failed", "session", session.ID, "launch_id", session.LaunchID, "profile", session.ProfileID, "backend", internalAddr, "durationMS", duration.Milliseconds(), "error", err)
+		_, _ = io.WriteString(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 		return
 	}
 	defer backendConn.Close()
+	_ = backendConn.SetDeadline(time.Now().Add(time.Duration(policy.TimeoutMS) * time.Millisecond))
 
-	// Forward client's upgrade request to backend (preserving all WebSocket headers)
-	upgradeReq := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: %s\r\nSec-WebSocket-Key: %s\r\n",
+	var upgradeReq strings.Builder
+	upgradeReq.Grow(256)
+	fmt.Fprintf(&upgradeReq, "GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: %s\r\nSec-WebSocket-Key: %s\r\n",
 		internalPath, internalAddr,
 		r.Header.Get("Sec-WebSocket-Version"),
 		r.Header.Get("Sec-WebSocket-Key"))
 	if ext := r.Header.Get("Sec-WebSocket-Extensions"); ext != "" {
-		upgradeReq += "Sec-WebSocket-Extensions: " + ext + "\r\n"
+		fmt.Fprintf(&upgradeReq, "Sec-WebSocket-Extensions: %s\r\n", ext)
 	}
-	upgradeReq += "\r\n"
-	backendConn.Write([]byte(upgradeReq))
-
-	// Read backend upgrade response
-	backendBuf := bufio.NewReader(backendConn)
-	resp, err := http.ReadResponse(backendBuf, nil)
-	if err != nil || resp.StatusCode != 101 {
-		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+	if browserName := r.Header.Get("X-Playwright-Browser"); browserName != "" {
+		fmt.Fprintf(&upgradeReq, "X-Playwright-Browser: %s\r\n", browserName)
+	}
+	upgradeReq.WriteString("\r\n")
+	if _, err := io.WriteString(backendConn, upgradeReq.String()); err != nil {
+		duration := time.Since(backendStarted)
+		h.mgr.RecordSessionProxyEvent(session, "proxy_handshake_failed", "PROXY_HANDSHAKE_FAILED", err.Error(), duration)
+		_, _ = io.WriteString(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 		return
 	}
 
-	// Forward ALL response headers to client (critical: includes Sec-WebSocket-Extensions)
-	clientConn.Write([]byte("HTTP/1.1 101 Switching Protocols\r\n"))
+	backendBuf := bufio.NewReader(backendConn)
+	resp, err := http.ReadResponse(backendBuf, nil)
+	if err != nil || resp.StatusCode != http.StatusSwitchingProtocols {
+		duration := time.Since(backendStarted)
+		message := "backend did not switch protocols"
+		if err != nil {
+			message = err.Error()
+		} else {
+			message = resp.Status
+			_ = resp.Body.Close()
+		}
+		h.mgr.RecordSessionProxyEvent(session, "proxy_handshake_failed", "PROXY_HANDSHAKE_FAILED", message, duration)
+		slog.Warn("Playwright proxy handshake failed", "session", session.ID, "launch_id", session.LaunchID, "profile", session.ProfileID, "backend", internalAddr, "durationMS", duration.Milliseconds(), "error", message)
+		_, _ = io.WriteString(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
+		return
+	}
+	_ = backendConn.SetDeadline(time.Time{})
+
+	clientWriter := bufio.NewWriter(clientConn)
+	if _, err := io.WriteString(clientWriter, "HTTP/1.1 101 Switching Protocols\r\n"); err != nil {
+		return
+	}
 	for key, vals := range resp.Header {
 		for _, val := range vals {
-			clientConn.Write([]byte(key + ": " + val + "\r\n"))
+			if _, err := fmt.Fprintf(clientWriter, "%s: %s\r\n", key, val); err != nil {
+				return
+			}
 		}
 	}
-	clientConn.Write([]byte("\r\n"))
+	if _, err := io.WriteString(clientWriter, "\r\n"); err != nil {
+		return
+	}
+	if err := clientWriter.Flush(); err != nil {
+		return
+	}
 
-	// Bidirectional pipe (use backendBuf to not lose buffered data)
+	h.mgr.RecordSessionProxyEvent(session, "proxy_connected", "", "", time.Since(requestStarted))
+	endpointAgeMS := int64(0)
+	if !session.EndpointBoundAt.IsZero() {
+		endpointAgeMS = time.Since(session.EndpointBoundAt).Milliseconds()
+	}
+	slog.Info("Playwright proxy connected", "session", session.ID, "launch_id", session.LaunchID, "profile", session.ProfileID, "runtime_id", session.RuntimeID, "backend", internalAddr, "endpointAgeMS", endpointAgeMS, "durationMS", time.Since(requestStarted).Milliseconds())
 	done := make(chan struct{}, 2)
-	go func() { io.Copy(backendConn, clientBuf); done <- struct{}{} }()
-	go func() { io.Copy(clientConn, backendBuf); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(backendConn, clientBuf); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(clientConn, backendBuf); done <- struct{}{} }()
 	<-done
+	h.mgr.RecordSessionProxyEvent(session, "proxy_disconnected", "", "", time.Since(requestStarted))
 }
 
 // Backup/restore/shutdown are in backup.go

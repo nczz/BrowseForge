@@ -30,6 +30,7 @@ type EndpointHealthConfig struct {
 	TimeoutMS    int  `json:"timeout_ms,omitempty"`
 	Attempts     int  `json:"attempts,omitempty"`
 	RetryDelayMS int  `json:"retry_delay_ms,omitempty"`
+	BindGraceMS  int  `json:"bind_grace_ms,omitempty"`
 	ProbePage    bool `json:"probe_page,omitempty"`
 	HistoryLimit int  `json:"history_limit,omitempty"`
 }
