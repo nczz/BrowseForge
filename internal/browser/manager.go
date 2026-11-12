@@ -7,6 +7,8 @@ import (
 	bfruntime "browseforge/internal/runtime"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/url"
 	"sync"
 	"time"
 
@@ -276,48 +278,37 @@ func (m *Manager) validateSessionEndpoint(p *profile.Profile, session *Session, 
 	}
 
 	code := classifyEndpointHealthError(lastErr)
-	return codedError{code: code, err: fmt.Errorf("Playwright endpoint health check failed after %d attempts: %w", policy.Attempts, lastErr)}
+	return codedError{code: code, err: fmt.Errorf("endpoint health check failed after %d attempts: %w", policy.Attempts, lastErr)}
 }
 
 func (m *Manager) checkEndpointHealth(session *Session, timeoutMS float64, probePage bool) error {
 	if m.endpointHealthCheck != nil {
 		return m.endpointHealthCheck(session.ConnectURL, timeoutMS, probePage)
 	}
-	if m.pw == nil {
-		return fmt.Errorf("playwright driver is not running")
-	}
-	var (
-		connected playwright.Browser
-		err       error
-	)
-	options := playwright.BrowserTypeConnectOptions{Timeout: playwright.Float(timeoutMS)}
-	if session.RuntimeID == string(bfruntime.Camoufox) {
-		connected, err = m.pw.Firefox.Connect(session.ConnectURL, options)
-	} else {
-		connected, err = m.pw.Chromium.Connect(session.ConnectURL, options)
-	}
+	endpoint, err := url.Parse(session.ConnectURL)
 	if err != nil {
-		return fmt.Errorf("connect: %w", err)
+		return fmt.Errorf("parse endpoint: %w", err)
 	}
-	defer connected.Close()
+	host := endpoint.Hostname()
+	port := endpoint.Port()
+	if host == "" || port == "" {
+		return fmt.Errorf("endpoint must include host and port: %q", session.ConnectURL)
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), time.Duration(timeoutMS*float64(time.Millisecond)))
+	if err != nil {
+		return fmt.Errorf("connect endpoint socket: %w", err)
+	}
+	_ = conn.Close()
 	if !probePage {
 		return nil
 	}
-	page, err := connected.NewPage(endpointHealthNewPageOptions(session.RuntimeID)...)
-	if err != nil {
-		return fmt.Errorf("new page: %w", err)
+	if session.Page == nil {
+		return fmt.Errorf("probe existing page: session page is nil")
 	}
-	defer page.Close()
+	if _, err := session.Page.Title(); err != nil {
+		return fmt.Errorf("probe existing page: %w", err)
+	}
 	return nil
-}
-
-func endpointHealthNewPageOptions(runtimeID string) []playwright.BrowserNewPageOptions {
-	if runtimeID != string(bfruntime.Camoufox) {
-		return nil
-	}
-	return []playwright.BrowserNewPageOptions{{
-		NoViewport: playwright.Bool(true),
-	}}
 }
 
 func (m *Manager) closeSessionResources(s *Session, reason string) {

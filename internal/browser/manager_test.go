@@ -3,6 +3,7 @@ package browser
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -140,21 +141,17 @@ func TestEndpointHealthErrorClassification(t *testing.T) {
 	}
 }
 
-func TestEndpointHealthNewPageOptionsDisablesViewportForCamoufox(t *testing.T) {
-	opts := endpointHealthNewPageOptions(string(bfruntime.Camoufox))
-	if len(opts) != 1 {
-		t.Fatalf("len(options) = %d, want 1", len(opts))
+func TestEndpointHealthUsesNonDestructiveSocketProbe(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
 	}
-	if opts[0].NoViewport == nil || !*opts[0].NoViewport {
-		t.Fatalf("NoViewport = %#v, want true", opts[0].NoViewport)
-	}
-}
+	defer listener.Close()
 
-func TestEndpointHealthNewPageOptionsPreservesChromiumDefaults(t *testing.T) {
-	for _, runtimeID := range []string{string(bfruntime.CloakBrowser), string(bfruntime.BrowseForgeChromium), ""} {
-		if opts := endpointHealthNewPageOptions(runtimeID); opts != nil {
-			t.Fatalf("runtime %q options = %#v, want nil", runtimeID, opts)
-		}
+	m := &Manager{}
+	s := &Session{ConnectURL: "ws://" + listener.Addr().String() + "/bind"}
+	if err := m.checkEndpointHealth(s, 1000, false); err != nil {
+		t.Fatalf("checkEndpointHealth: %v", err)
 	}
 }
 

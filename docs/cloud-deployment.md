@@ -15,7 +15,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.16
+  ghcr.io/nczz/browseforge:v2.1.17
 ```
 
 ## First Startup
@@ -33,7 +33,7 @@ docker exec browseforge /app/BrowseForge smoke rest --wait --json
 ## Upgrade
 
 ```bash
-docker pull ghcr.io/nczz/browseforge:v2.1.16
+docker pull ghcr.io/nczz/browseforge:v2.1.17
 docker stop browseforge
 docker rm browseforge
 # Re-run docker run with the same -v "$PWD/browseforge/...:/app/..." mounts.

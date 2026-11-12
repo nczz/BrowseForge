@@ -91,7 +91,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.16
+  ghcr.io/nczz/browseforge:v2.1.17
 ```
 
 The `./browseforge/` host directory is the durable runtime. Reusing these mounts when pulling a new image or recreating the container preserves profiles, tokens, browser data, logs, and backups.
