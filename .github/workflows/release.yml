@@ -83,8 +83,6 @@ jobs:
           node scripts/generate-fingerprints.js --browser firefox --os macos --count 500
           node scripts/generate-fingerprints.js --browser chrome --os windows --count 500
           node scripts/generate-fingerprints.js --browser chrome --os macos --count 500
-          pip install camoufox --quiet
-          python scripts/inject-webgl.py
 
       - name: Build
         env:

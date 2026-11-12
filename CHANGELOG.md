@@ -15,6 +15,7 @@ All notable changes should be documented here. This project follows semantic ver
 
 - Changed endpoint health validation to connect-only by default so readiness checks no longer open visible diagnostic tabs.
 - Retry the same runtime child endpoint before cleanup and close every dropped session resource instead of amplifying failures through immediate child replacement.
+- Removed the release build's obsolete dependency on Camoufox's deleted `sample_webgl` Python API; fingerprint generation now omits incomplete renderer/vendor-only identities and lets Camoufox produce a consistent WebGL identity.
 
 ## v2.1.15 - 2026-09-29
 
