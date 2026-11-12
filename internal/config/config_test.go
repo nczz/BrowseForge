@@ -46,6 +46,37 @@ func TestLoadCloakBrowserConfig(t *testing.T) {
 	}
 }
 
+func TestLoadEndpointHealthConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	data := []byte(`{
+  "endpoint_health": {
+    "timeout_ms": 15000,
+    "attempts": 2,
+    "retry_delay_ms": 500,
+    "probe_page": false,
+    "history_limit": 256
+  }
+}`)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.EndpointHealth == nil {
+		t.Fatal("EndpointHealth = nil")
+	}
+	if cfg.EndpointHealth.TimeoutMS != 15000 ||
+		cfg.EndpointHealth.Attempts != 2 ||
+		cfg.EndpointHealth.RetryDelayMS != 500 ||
+		cfg.EndpointHealth.ProbePage ||
+		cfg.EndpointHealth.HistoryLimit != 256 {
+		t.Fatalf("EndpointHealth = %#v", cfg.EndpointHealth)
+	}
+}
+
 func TestLoadDefaultLeavesCloakBrowserPolicyUnset(t *testing.T) {
 	cfg, err := Load(filepath.Join(t.TempDir(), "missing.json"))
 	if err != nil {

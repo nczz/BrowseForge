@@ -3,6 +3,13 @@
   "profiles_dir": "profiles",
   "data_dir": "data",
   "log_file": "logs/server.log",
+  "endpoint_health": {
+    "timeout_ms": 15000,
+    "attempts": 2,
+    "retry_delay_ms": 500,
+    "probe_page": false,
+    "history_limit": 256
+  },
   "camoufox_path": "camoufox/camoufox",
   "cloakbrowser_path": "",
   "cloakbrowser": {

@@ -50,16 +50,23 @@ trap cleanup EXIT
 [[ "$(git status --short)" == "" ]] || die "working tree must be clean before release"
 
 current_branch="$(git branch --show-current)"
-[[ "$current_branch" == "main" ]] || die "release must be prepared from main, current branch: $current_branch"
+major="${version#v}"
+major="${major%%.*}"
+case "$major" in
+  1) expected_branch="v1" ;;
+  2) expected_branch="main" ;;
+  *) die "unsupported release major: v${major}" ;;
+esac
+[[ "$current_branch" == "$expected_branch" ]] || die "${version} release must be prepared from ${expected_branch}, current branch: $current_branch"
 
 if git rev-parse "$version" >/dev/null 2>&1; then
   die "local tag already exists: $version"
 fi
 
 head_sha="$(git rev-parse HEAD)"
-origin_main_sha="$(git rev-parse origin/main 2>/dev/null || true)"
-if [[ -n "$origin_main_sha" && "$head_sha" != "$origin_main_sha" ]]; then
-  die "HEAD ($head_sha) does not match origin/main ($origin_main_sha); push main first"
+origin_sha="$(git rev-parse "origin/${expected_branch}" 2>/dev/null || true)"
+if [[ -n "$origin_sha" && "$head_sha" != "$origin_sha" ]]; then
+  die "HEAD ($head_sha) does not match origin/${expected_branch} ($origin_sha); push ${expected_branch} first"
 fi
 
 command -v go >/dev/null || die "go is required"

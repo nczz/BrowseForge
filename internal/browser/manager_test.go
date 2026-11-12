@@ -42,20 +42,23 @@ func TestShouldRetryLaunchRejectsNoManagerRetryError(t *testing.T) {
 func TestPrepareSessionEndpointRequiresHealthyEndpoint(t *testing.T) {
 	wantEndpoint := "ws://127.0.0.1:12345/bind"
 	m := &Manager{
-		cfg:                     &config.Config{Host: "127.0.0.1"},
-		endpointHealthTimeoutMS: 1234,
+		cfg:                  &config.Config{Host: "127.0.0.1"},
+		endpointHealthPolicy: endpointHealthPolicy(1234, 1, 1, false, 32),
 		bindSessionEndpoint: func(s *Session) (string, error) {
 			if s.ID != "sess_prof_health" {
 				t.Fatalf("bind session = %s, want sess_prof_health", s.ID)
 			}
 			return wantEndpoint, nil
 		},
-		endpointHealthCheck: func(endpoint string, timeoutMS float64) error {
+		endpointHealthCheck: func(endpoint string, timeoutMS float64, probePage bool) error {
 			if endpoint != wantEndpoint {
 				t.Fatalf("endpoint = %s, want %s", endpoint, wantEndpoint)
 			}
 			if timeoutMS != 1234 {
 				t.Fatalf("timeoutMS = %v, want 1234", timeoutMS)
+			}
+			if probePage {
+				t.Fatal("probePage = true, want false")
 			}
 			return errors.New("browserType.connect: Timeout 30000ms exceeded")
 		},
@@ -79,17 +82,21 @@ func TestPrepareSessionEndpointStoresHealthyEndpoint(t *testing.T) {
 	wantEndpoint := "ws://127.0.0.1:12345/healthy"
 	healthChecked := false
 	m := &Manager{
-		cfg: &config.Config{Host: "127.0.0.1"},
+		cfg:                  &config.Config{Host: "127.0.0.1"},
+		endpointHealthPolicy: endpointHealthPolicy(0, 1, 1, false, 32),
 		bindSessionEndpoint: func(*Session) (string, error) {
 			return wantEndpoint, nil
 		},
-		endpointHealthCheck: func(endpoint string, timeoutMS float64) error {
+		endpointHealthCheck: func(endpoint string, timeoutMS float64, probePage bool) error {
 			healthChecked = true
 			if endpoint != wantEndpoint {
 				t.Fatalf("endpoint = %s, want %s", endpoint, wantEndpoint)
 			}
 			if timeoutMS != defaultEndpointHealthTimeoutMS {
 				t.Fatalf("timeoutMS = %v, want %v", timeoutMS, defaultEndpointHealthTimeoutMS)
+			}
+			if probePage {
+				t.Fatal("probePage = true, want false")
 			}
 			return nil
 		},
@@ -122,6 +129,112 @@ func TestEndpointHealthErrorClassification(t *testing.T) {
 		if got := classifyEndpointHealthError(tc.err); got != tc.want {
 			t.Fatalf("classifyEndpointHealthError(%q) = %q, want %q", tc.err, got, tc.want)
 		}
+	}
+}
+
+func TestEndpointHealthNewPageOptionsDisablesViewportForFirefox(t *testing.T) {
+	opts := endpointHealthNewPageOptions("firefox")
+	if len(opts) != 1 {
+		t.Fatalf("len(options) = %d, want 1", len(opts))
+	}
+	if opts[0].NoViewport == nil || !*opts[0].NoViewport {
+		t.Fatalf("NoViewport = %#v, want true", opts[0].NoViewport)
+	}
+}
+
+func TestEndpointHealthNewPageOptionsPreservesChromiumDefaults(t *testing.T) {
+	for _, engine := range []string{"chromium", ""} {
+		if opts := endpointHealthNewPageOptions(engine); opts != nil {
+			t.Fatalf("engine %q options = %#v, want nil", engine, opts)
+		}
+	}
+}
+
+func TestValidateSessionEndpointRetriesSameChildBeforeSuccess(t *testing.T) {
+	checks := 0
+	m := &Manager{
+		endpointHealthPolicy: endpointHealthPolicy(2500, 2, 1, false, 32),
+		endpointHealthCheck: func(endpoint string, timeoutMS float64, probePage bool) error {
+			checks++
+			if endpoint != "ws://127.0.0.1:12345/retry" {
+				t.Fatalf("endpoint = %q", endpoint)
+			}
+			if timeoutMS != 2500 || probePage {
+				t.Fatalf("policy = timeout %v probePage %v", timeoutMS, probePage)
+			}
+			if checks == 1 {
+				return errors.New("browserType.connect: Timeout 2500ms exceeded")
+			}
+			return nil
+		},
+	}
+	p := &profile.Profile{ID: "prof_retry", Engine: "chromium"}
+	s := &Session{
+		ID:         "sess_prof_retry",
+		LaunchID:   "launch-retry",
+		ProfileID:  p.ID,
+		Engine:     p.Engine,
+		ConnectURL: "ws://127.0.0.1:12345/retry",
+	}
+
+	if err := m.validateSessionEndpoint(p, s, "launch"); err != nil {
+		t.Fatalf("validateSessionEndpoint: %v", err)
+	}
+	if checks != 2 {
+		t.Fatalf("checks = %d, want 2", checks)
+	}
+	if s.HealthStatus != "healthy" || s.HealthAttempts != 2 {
+		t.Fatalf("health = %q attempts = %d", s.HealthStatus, s.HealthAttempts)
+	}
+	events := m.SessionEvents(SessionEventFilter{LaunchID: s.LaunchID, Limit: 10})
+	if len(events) != 4 {
+		t.Fatalf("events = %#v, want start/fail/start/healthy", events)
+	}
+	if events[0].Event != "endpoint_healthy" || events[1].Event != "endpoint_health_started" || events[2].Event != "endpoint_health_failed" {
+		t.Fatalf("events newest first = %#v", events)
+	}
+}
+
+func TestSessionEventsRemainAvailableAfterCloseAndAreBounded(t *testing.T) {
+	m := &Manager{endpointHealthPolicy: endpointHealthPolicy(0, 0, 0, false, 3)}
+	s := &Session{ID: "sess_prof_history", LaunchID: "launch-history", ProfileID: "prof_history", Engine: "chromium"}
+	m.recordSessionEventLocked(s, "browser_launched", sessionEventDetails{})
+	m.closeSessionResources(s, "test_cleanup")
+
+	events := m.SessionEvents(SessionEventFilter{ProfileID: s.ProfileID, Limit: 10})
+	if len(events) != 3 {
+		t.Fatalf("len(events) = %d, want 3", len(events))
+	}
+	if events[0].Event != "session_closed" ||
+		events[0].Reason != "test_cleanup" ||
+		events[1].Event != "session_close_started" ||
+		events[2].Event != "browser_launched" {
+		t.Fatalf("post-close events newest first = %#v", events)
+	}
+}
+
+func TestEndpointHealthPolicyFromConfig(t *testing.T) {
+	got := endpointHealthPolicyFromConfig(&config.EndpointHealthConfig{
+		TimeoutMS:    maxEndpointHealthTimeoutMS + 1,
+		Attempts:     maxEndpointHealthAttempts + 1,
+		RetryDelayMS: maxEndpointHealthRetryDelayMS + 1,
+		ProbePage:    true,
+		HistoryLimit: maxSessionEventHistoryLimit + 1,
+	})
+	if got.TimeoutMS != maxEndpointHealthTimeoutMS ||
+		got.Attempts != maxEndpointHealthAttempts ||
+		got.RetryDelayMS != maxEndpointHealthRetryDelayMS ||
+		!got.ProbePage ||
+		got.HistoryLimit != maxSessionEventHistoryLimit {
+		t.Fatalf("policy = %#v", got)
+	}
+	defaults := endpointHealthPolicyFromConfig(nil)
+	if defaults.TimeoutMS != defaultEndpointHealthTimeoutMS ||
+		defaults.Attempts != defaultEndpointHealthAttempts ||
+		defaults.RetryDelayMS != defaultEndpointHealthRetryDelayMS ||
+		defaults.ProbePage ||
+		defaults.HistoryLimit != defaultSessionEventHistoryLimit {
+		t.Fatalf("default policy = %#v", defaults)
 	}
 }
 

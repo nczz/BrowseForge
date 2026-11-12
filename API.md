@@ -55,8 +55,16 @@ curl http://127.0.0.1:19280/api/status
 
 ```json
 {
-  "version": "1.7.0",
-  "status": "ok"
+  "version": "1.10.4",
+  "status": "ok",
+  "active_sessions": 1,
+  "endpoint_health_policy": {
+    "timeout_ms": 15000,
+    "attempts": 2,
+    "retry_delay_ms": 500,
+    "probe_page": false,
+    "history_limit": 256
+  }
 }
 ```
 
@@ -257,8 +265,12 @@ curl -X POST http://127.0.0.1:19280/api/sessions \
 {
   "data": {
     "session_id": "sess_prof_a1b2c3d4e5f6",
+    "launch_id": "sess_prof_a1b2c3d4e5f6-20261112T120000.000000000Z-1",
     "profile_id": "prof_a1b2c3d4e5f6",
-    "engine": "firefox"
+    "engine": "firefox",
+    "health_status": "healthy",
+    "health_attempts": 1,
+    "last_health_latency_ms": 42
   }
 }
 ```
@@ -270,6 +282,19 @@ Lists active sessions.
 ```bash
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:19280/api/sessions
 ```
+
+Session responses include a unique `launch_id`, creation time, and endpoint health summary. A failed `POST /api/sessions` response includes `diagnostics.endpoint_health_policy` and the latest lifecycle events for that profile.
+
+### GET `/api/diagnostics/sessions`
+
+Returns newest-first in-memory lifecycle events, including endpoint retries, browser disconnects, Playwright restarts, and explicit cleanup reasons. Requires authentication. Optional filters: `session_id`, `launch_id`, `profile_id`, and `limit`.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:19280/api/diagnostics/sessions?profile_id=prof_a1b2c3d4e5f6&limit=50"
+```
+
+The history is bounded by `endpoint_health.history_limit` and resets when BrowseForge restarts. Use the configured JSON log for cross-restart diagnosis.
 
 ### DELETE `/api/sessions/{id}`
 

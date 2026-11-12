@@ -7,19 +7,30 @@ import (
 )
 
 type Config struct {
-	Host             string              `json:"host,omitempty"`
-	Port             string              `json:"port"`
-	NoSandbox        bool                `json:"no_sandbox,omitempty"`
-	ProfilesDir      string              `json:"profiles_dir"`
-	DataDir          string              `json:"data_dir"`
-	LogFile          string              `json:"log_file"`
-	CamoufoxPath     string              `json:"camoufox_path"`
-	CloakBrowserPath string              `json:"cloakbrowser_path"`
-	CloakBrowser     *CloakBrowserConfig `json:"cloakbrowser,omitempty"`
-	FingerprintDir   string              `json:"fingerprint_dir"`
-	Humanize         *HumanizeConfig     `json:"humanize,omitempty"`
-	APIToken         string              `json:"-"` // generated at runtime
-	Version          string              `json:"-"` // set from main
+	Host             string                `json:"host,omitempty"`
+	Port             string                `json:"port"`
+	NoSandbox        bool                  `json:"no_sandbox,omitempty"`
+	ProfilesDir      string                `json:"profiles_dir"`
+	DataDir          string                `json:"data_dir"`
+	LogFile          string                `json:"log_file"`
+	CamoufoxPath     string                `json:"camoufox_path"`
+	CloakBrowserPath string                `json:"cloakbrowser_path"`
+	CloakBrowser     *CloakBrowserConfig   `json:"cloakbrowser,omitempty"`
+	FingerprintDir   string                `json:"fingerprint_dir"`
+	EndpointHealth   *EndpointHealthConfig `json:"endpoint_health,omitempty"`
+	Humanize         *HumanizeConfig       `json:"humanize,omitempty"`
+	APIToken         string                `json:"-"` // generated at runtime
+	Version          string                `json:"-"` // set from main
+}
+
+// EndpointHealthConfig controls Playwright Bind endpoint validation and the
+// bounded in-memory lifecycle history exposed to operators.
+type EndpointHealthConfig struct {
+	TimeoutMS    int  `json:"timeout_ms,omitempty"`
+	Attempts     int  `json:"attempts,omitempty"`
+	RetryDelayMS int  `json:"retry_delay_ms,omitempty"`
+	ProbePage    bool `json:"probe_page,omitempty"`
+	HistoryLimit int  `json:"history_limit,omitempty"`
 }
 
 // CloakBrowserConfig controls Chromium/CloakBrowser launch compatibility.

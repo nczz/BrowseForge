@@ -31,7 +31,7 @@ Token 位於 `data/.api-token`。Dashboard 首次開啟時會要求輸入。
 curl http://127.0.0.1:19280/api/status
 ```
 ```json
-{"version": "1.7.0", "status": "ok"}
+{"version": "1.10.4", "status": "ok", "active_sessions": 1, "endpoint_health_policy": {"timeout_ms": 15000, "attempts": 2, "retry_delay_ms": 500, "probe_page": false, "history_limit": 256}}
 ```
 
 #### POST /api/shutdown
@@ -171,7 +171,7 @@ curl -X POST http://127.0.0.1:19280/api/sessions \
   -d '{"profile_id": "prof_a1b2c3d4e5f6"}'
 ```
 ```json
-{"data": {"session_id": "sess_prof_a1b2c3d4e5f6", "profile_id": "prof_a1b2c3d4e5f6", "engine": "firefox"}}
+{"data": {"session_id": "sess_prof_a1b2c3d4e5f6", "launch_id": "sess_prof_a1b2c3d4e5f6-20261112T120000.000000000Z-1", "profile_id": "prof_a1b2c3d4e5f6", "engine": "firefox", "health_status": "healthy", "health_attempts": 1, "last_health_latency_ms": 42}}
 ```
 
 開啟一個帶有該 Profile 指紋和 Proxy 的瀏覽器視窗。
@@ -180,6 +180,19 @@ curl -X POST http://127.0.0.1:19280/api/sessions \
 ```bash
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:19280/api/sessions
 ```
+
+Session response 會包含唯一的 `launch_id`、建立時間與 endpoint health 摘要。`POST /api/sessions` 失敗時，response 會附上 `diagnostics.endpoint_health_policy` 與該 profile 最新的 lifecycle events。
+
+#### GET /api/diagnostics/sessions — Session lifecycle 診斷
+
+依新到舊回傳 endpoint retry、browser disconnect、Playwright restart 與明確 cleanup reason。需要 Bearer token；可使用 `session_id`、`launch_id`、`profile_id` 與 `limit` 篩選。
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:19280/api/diagnostics/sessions?profile_id=prof_a1b2c3d4e5f6&limit=50"
+```
+
+記憶體內歷史受 `endpoint_health.history_limit` 限制，BrowseForge 重啟後會清空；跨重啟診斷請查設定的 JSON log。
 
 #### DELETE /api/sessions/:id — 關閉瀏覽器
 ```bash

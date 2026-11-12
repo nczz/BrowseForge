@@ -34,7 +34,14 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 [[ "$(git status --short)" == "" ]] || die "working tree must be clean before tagging"
-[[ "$(git branch --show-current)" == "main" ]] || die "release tags must be created from main"
+major="${version#v}"
+major="${major%%.*}"
+case "$major" in
+  1) expected_branch="v1" ;;
+  2) expected_branch="main" ;;
+  *) die "unsupported release major: v${major}" ;;
+esac
+[[ "$(git branch --show-current)" == "$expected_branch" ]] || die "${version} release tags must be created from ${expected_branch}"
 
 if [[ "${SKIP_PREFLIGHT:-}" != "1" ]]; then
   run scripts/release-preflight.sh "$version"

@@ -9,8 +9,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
+	"browseforge/internal/browser"
 	"browseforge/internal/humanize"
 
 	"github.com/go-chi/chi/v5"
@@ -34,22 +36,26 @@ func (h *handler) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, err := h.mgr.LaunchSession(p)
 	if err != nil {
-		writeSessionLaunchError(w, err)
+		h.writeSessionLaunchError(w, err, req.ProfileID)
 		return
 	}
-	writeJSON(w, 201, map[string]any{"data": map[string]any{
-		"session_id": sess.ID,
-		"profile_id": sess.ProfileID,
-		"engine":     sess.Engine,
-	}})
+	writeJSON(w, http.StatusCreated, map[string]any{"data": sessionSummary(sess)})
 }
 
-func writeSessionLaunchError(w http.ResponseWriter, err error) {
+func (h *handler) writeSessionLaunchError(w http.ResponseWriter, err error, profileID string) {
 	code := "LAUNCH_FAILED"
 	if c := browserErrorCode(err); c != "" {
 		code = c
 	}
-	writeError(w, 500, code, err.Error())
+	recent := h.mgr.SessionEvents(browser.SessionEventFilter{ProfileID: profileID, Limit: 20})
+	writeJSON(w, http.StatusInternalServerError, map[string]any{
+		"error": map[string]string{"code": code, "message": err.Error()},
+		"diagnostics": map[string]any{
+			"profile_id":             profileID,
+			"endpoint_health_policy": h.mgr.EndpointHealthPolicy(),
+			"recent_events":          recent,
+		},
+	})
 }
 
 type browserErrorCoder interface {
@@ -64,17 +70,44 @@ func browserErrorCode(err error) string {
 	return ""
 }
 
+func sessionSummary(s *browser.Session) map[string]any {
+	return map[string]any{
+		"session_id":             s.ID,
+		"launch_id":              s.LaunchID,
+		"profile_id":             s.ProfileID,
+		"engine":                 s.Engine,
+		"created_at":             s.CreatedAt,
+		"health_status":          s.HealthStatus,
+		"health_attempts":        s.HealthAttempts,
+		"last_health_at":         s.LastHealthAt,
+		"last_health_latency_ms": s.LastHealthLatencyMS,
+	}
+}
+
 func (h *handler) listSessions(w http.ResponseWriter, r *http.Request) {
 	sessions := h.mgr.ListSessions()
-	var result []map[string]any
+	result := make([]map[string]any, 0, len(sessions))
 	for _, s := range sessions {
-		result = append(result, map[string]any{
-			"session_id": s.ID,
-			"profile_id": s.ProfileID,
-			"engine":     s.Engine,
-		})
+		result = append(result, sessionSummary(s))
 	}
-	writeJSON(w, 200, map[string]any{"data": result, "total": len(result)})
+	writeJSON(w, http.StatusOK, map[string]any{"data": result, "total": len(result)})
+}
+
+func (h *handler) sessionDiagnostics(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	filter := browser.SessionEventFilter{
+		SessionID: r.URL.Query().Get("session_id"),
+		LaunchID:  r.URL.Query().Get("launch_id"),
+		ProfileID: r.URL.Query().Get("profile_id"),
+		Limit:     limit,
+	}
+	events := h.mgr.SessionEvents(filter)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data":                   events,
+		"total":                  len(events),
+		"newest_first":           true,
+		"endpoint_health_policy": h.mgr.EndpointHealthPolicy(),
+	})
 }
 
 func (h *handler) deleteSession(w http.ResponseWriter, r *http.Request) {
