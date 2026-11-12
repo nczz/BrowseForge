@@ -31,7 +31,7 @@ Token 位於 `data/.api-token`。Dashboard 首次開啟時會要求輸入。
 curl http://127.0.0.1:19280/api/status
 ```
 ```json
-{"version": "1.10.5", "status": "ok", "active_sessions": 1, "endpoint_health_policy": {"timeout_ms": 15000, "attempts": 2, "retry_delay_ms": 500, "probe_page": false, "history_limit": 256}}
+{"version": "1.10.6", "status": "ok", "active_sessions": 1, "endpoint_health_policy": {"timeout_ms": 15000, "attempts": 2, "retry_delay_ms": 500, "bind_grace_ms": 100, "probe_page": false, "history_limit": 256}}
 ```
 
 #### POST /api/shutdown
@@ -444,7 +444,7 @@ Claude: [呼叫 create_profile] → 建立了 prof_xxx
 
 ### GET /api/playwright/endpoint
 
-取得所有 session 的 Playwright Connect endpoint。BrowseForge 目前使用 Playwright 1.60 整合版，回傳的 endpoint 來自 Playwright driver 的 `browser.Bind()`。
+取得所有 session 的 Playwright Connect URL。新的本機與遠端整合都必須使用 Bearer token 驗證的 `proxy`；raw Bind endpoint 不會由此 API 回傳，僅保留於內部 diagnostics。
 
 **Response:**
 ```json
@@ -454,13 +454,13 @@ Claude: [呼叫 create_profile] → 建立了 prof_xxx
       "session_id": "sess_prof_abc123",
       "profile_id": "prof_abc123",
       "engine": "chromium",
-      "endpoint": "ws://127.0.0.1:54321/abcdef...",
-      "proxy": "ws://your-host:19280/api/playwright/ws/sess_prof_abc123"
+      "proxy": "ws://your-host:19280/api/playwright/ws/sess_prof_abc123",
+      "bind_grace_ms": 100
     }
   ]
 }
 ```
 
-外部 Playwright client 可以使用 `browserType.connect(endpoint)` 直連；遠端或 Docker 場景建議使用 `proxy` URL，並在連線時帶 Bearer Token。
+Playwright client 應使用 `proxy` URL，並在連線時帶 Bearer Token。Proxy 會等到設定的 Bind grace 到期才連入 backend，並記錄 proxy lifecycle diagnostics。Raw Bind endpoint 不對外提供。
 
 **限制：** Client 必須使用與 BrowseForge driver 相容的 Playwright 版本；目前應使用 Playwright **1.60.x**。

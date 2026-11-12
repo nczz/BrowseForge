@@ -21,7 +21,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v1.10.5
+  ghcr.io/nczz/browseforge:v1.10.6
 ```
 
 Build from the local source tree:
@@ -32,10 +32,10 @@ mkdir -p ./browseforge/{profiles,data,browsers,logs,backups}
 docker compose up -d --build
 ```
 
-The Compose file builds the `v1.10.5` release image by default. To test another version:
+The Compose file builds the `v1.10.6` release image by default. To test another version:
 
 ```bash
-BROWSEFORGE_VERSION=v1.10.5 docker compose up -d --build
+BROWSEFORGE_VERSION=v1.10.6 docker compose up -d --build
 ```
 
 ## First Startup
@@ -96,7 +96,7 @@ When you pull a new image or recreate the container, reuse the same `-v "$PWD/br
 Upgrade example:
 
 ```bash
-docker pull ghcr.io/nczz/browseforge:v1.10.5
+docker pull ghcr.io/nczz/browseforge:v1.10.6
 docker stop browseforge
 docker rm browseforge
 docker run -d --name browseforge \
@@ -109,7 +109,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v1.10.5
+  ghcr.io/nczz/browseforge:v1.10.6
 ```
 
 Full filesystem backup:

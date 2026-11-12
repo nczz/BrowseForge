@@ -6,8 +6,6 @@ import (
 	"browseforge/internal/profile"
 	"fmt"
 	"log/slog"
-	"net"
-	"net/url"
 	"sync"
 	"time"
 
@@ -24,11 +22,12 @@ type Session struct {
 	Context             playwright.BrowserContext
 	Page                playwright.Page
 	relay               *SOCKS5Relay
-	ConnectURL          string // Bind endpoint for external Playwright clients
+	ConnectURL          string // Internal Playwright Bind endpoint
 	ProfileDir          string
 	UserDataDir         string
 	ExecutablePath      string
 	CreatedAt           time.Time
+	EndpointBoundAt     time.Time
 	HealthStatus        string
 	HealthAttempts      int
 	LastHealthAt        time.Time
@@ -179,9 +178,13 @@ func (m *Manager) prepareSessionEndpoint(p *profile.Profile, session *Session, a
 		return wrapped
 	}
 	session.ConnectURL = endpoint
+	session.EndpointBoundAt = time.Now().UTC()
 	m.recordSessionEventLocked(session, "endpoint_bound", sessionEventDetails{attempt: attempt})
 	slog.Info("session endpoint bound", "session", session.ID, "launch_id", session.LaunchID, "profile", p.ID, "engine", session.Engine, "attempt", attempt, "connectURL", endpoint, "profileDir", session.ProfileDir, "userDataDir", session.UserDataDir, "executablePath", session.ExecutablePath)
-	return m.validateSessionEndpoint(p, session, "launch")
+	if err := m.validateSessionEndpoint(p, session, "launch"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) observeBrowserLifecycle(session *Session) {
@@ -261,20 +264,13 @@ func (m *Manager) checkEndpointHealth(session *Session, timeoutMS float64, probe
 	if m.endpointHealthCheck != nil {
 		return m.endpointHealthCheck(session.ConnectURL, timeoutMS, probePage)
 	}
-	endpoint, err := url.Parse(session.ConnectURL)
-	if err != nil {
-		return fmt.Errorf("parse endpoint: %w", err)
+	if session.Context == nil {
+		return fmt.Errorf("verify bound browser: session context is nil")
 	}
-	host := endpoint.Hostname()
-	port := endpoint.Port()
-	if host == "" || port == "" {
-		return fmt.Errorf("endpoint must include host and port: %q", session.ConnectURL)
+	browser := session.Context.Browser()
+	if browser == nil || !browser.IsConnected() {
+		return fmt.Errorf("verify bound browser: browser is disconnected")
 	}
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), time.Duration(timeoutMS*float64(time.Millisecond)))
-	if err != nil {
-		return fmt.Errorf("connect endpoint socket: %w", err)
-	}
-	_ = conn.Close()
 	if !probePage {
 		return nil
 	}

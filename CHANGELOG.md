@@ -4,6 +4,18 @@ All notable changes should be documented here. This project follows semantic ver
 
 ## Unreleased
 
+## v1.10.6 - 2026-11-12
+
+### Added
+
+- Added a configurable Playwright Bind handoff grace shared by the authenticated WebSocket proxy and internal MCP web sessions.
+- Added the authenticated `proxy` URL, `bind_grace_ms`, and backend connect/handshake/disconnect events to session diagnostics; raw Bind endpoints are no longer exposed by the endpoint discovery API.
+
+### Fixed
+
+- Prevented Windows CloakBrowser child shutdown loops caused by clients attaching during the Playwright Bind handoff window.
+- Replaced endpoint TCP probes with non-consuming checks against the manager-owned browser connection and optional existing-page title.
+
 ## v1.10.5 - 2026-11-12
 
 ### Fixed

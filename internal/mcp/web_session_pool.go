@@ -25,8 +25,8 @@ const (
 //
 // Design:
 //   - browser.Manager owns one CloakBrowser/Chromium browser per profile.
-//   - Each browser.Manager session exposes a Playwright Bind endpoint (ConnectURL).
-//   - SessionPool connects to that endpoint and creates one independent Page per agent session.
+//   - Each browser.Manager session exposes a gated Playwright Bind endpoint.
+//   - SessionPool creates one independent Page per agent session.
 //   - GC only closes per-agent pages; it never closes the profile browser.
 type SessionPool struct {
 	mu            sync.RWMutex
@@ -404,6 +404,8 @@ func (sp *SessionPool) ensureProfilePool(profileID string) (*profile.Profile, *P
 		return p, pool, nil
 	}
 	sp.mu.RUnlock()
+
+	sp.mgr.WaitForEndpointBindGrace(browserSession, "mcp")
 
 	sp.mu.Lock()
 	pool, ok = sp.pools[profileID]
