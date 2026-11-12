@@ -31,7 +31,7 @@ Token 位於 `data/.api-token`。Dashboard 首次開啟時會要求輸入。
 curl http://127.0.0.1:19280/api/status
 ```
 ```json
-{"version": "1.10.4", "status": "ok", "active_sessions": 1, "endpoint_health_policy": {"timeout_ms": 15000, "attempts": 2, "retry_delay_ms": 500, "probe_page": false, "history_limit": 256}}
+{"version": "1.10.5", "status": "ok", "active_sessions": 1, "endpoint_health_policy": {"timeout_ms": 15000, "attempts": 2, "retry_delay_ms": 500, "probe_page": false, "history_limit": 256}}
 ```
 
 #### POST /api/shutdown

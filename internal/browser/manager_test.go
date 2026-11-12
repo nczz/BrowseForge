@@ -4,6 +4,7 @@ import (
 	"browseforge/internal/config"
 	"browseforge/internal/profile"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,21 +133,17 @@ func TestEndpointHealthErrorClassification(t *testing.T) {
 	}
 }
 
-func TestEndpointHealthNewPageOptionsDisablesViewportForFirefox(t *testing.T) {
-	opts := endpointHealthNewPageOptions("firefox")
-	if len(opts) != 1 {
-		t.Fatalf("len(options) = %d, want 1", len(opts))
+func TestEndpointHealthUsesNonDestructiveSocketProbe(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
 	}
-	if opts[0].NoViewport == nil || !*opts[0].NoViewport {
-		t.Fatalf("NoViewport = %#v, want true", opts[0].NoViewport)
-	}
-}
+	defer listener.Close()
 
-func TestEndpointHealthNewPageOptionsPreservesChromiumDefaults(t *testing.T) {
-	for _, engine := range []string{"chromium", ""} {
-		if opts := endpointHealthNewPageOptions(engine); opts != nil {
-			t.Fatalf("engine %q options = %#v, want nil", engine, opts)
-		}
+	m := &Manager{}
+	s := &Session{ConnectURL: "ws://" + listener.Addr().String() + "/bind"}
+	if err := m.checkEndpointHealth(s, 1000, false); err != nil {
+		t.Fatalf("checkEndpointHealth: %v", err)
 	}
 }
 

@@ -20,7 +20,7 @@ BrowseForge releases are tag driven. Do not create or push release tags by hand.
 3. Run preflight from a clean `v1` checkout:
 
    ```bash
-   scripts/release-preflight.sh v1.10.4
+   scripts/release-preflight.sh v1.10.5
    ```
 
 The preflight checks the working tree, version references, Go tests, vet, UI i18n syntax, public documentation language, workflow YAML, Docker Compose config, the Camoufox Bind spike, the CloakBrowser Bind spike when a local binary is available, and a real `linux/amd64` Docker build.
@@ -30,7 +30,7 @@ For release machines that must prove both browser engines before publishing, enf
 ```bash
 REQUIRE_CLOAKBROWSER=1 \
 CLOAKBROWSER_PATH=/path/to/Chromium \
-scripts/release-preflight.sh v1.10.4
+scripts/release-preflight.sh v1.10.5
 ```
 
 ## Publish
@@ -38,7 +38,7 @@ scripts/release-preflight.sh v1.10.4
 After preflight passes:
 
 ```bash
-scripts/release-push.sh v1.10.4
+scripts/release-push.sh v1.10.5
 gh run watch
 ```
 

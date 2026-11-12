@@ -55,7 +55,7 @@ curl http://127.0.0.1:19280/api/status
 
 ```json
 {
-  "version": "1.10.4",
+  "version": "1.10.5",
   "status": "ok",
   "active_sessions": 1,
   "endpoint_health_policy": {

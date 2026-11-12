@@ -4,7 +4,12 @@ All notable changes should be documented here. This project follows semantic ver
 
 ## Unreleased
 
-Nothing yet.
+## v1.10.5 - 2026-11-12
+
+### Fixed
+
+- Replaced destructive Playwright endpoint health connections with a TCP readiness probe. Closing the health-check client had terminated the Browser Bind endpoint before AutoPost could connect.
+- Strict page probing now checks the session's existing page instead of opening and closing an additional client browser.
 
 ## v1.10.4 - 2026-11-12
 

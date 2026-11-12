@@ -5,7 +5,7 @@ services:
       context: .
       dockerfile: Dockerfile.run
       args:
-        BROWSEFORGE_VERSION: ${BROWSEFORGE_VERSION:-v1.10.4}
+        BROWSEFORGE_VERSION: ${BROWSEFORGE_VERSION:-v1.10.5}
         BROWSEFORGE_ARCH: linux-x64
         BROWSEFORGE_PREINSTALL_BROWSERS: ${BROWSEFORGE_PREINSTALL_BROWSERS:-1}
     ports:
