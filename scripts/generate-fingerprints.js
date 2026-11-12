@@ -82,11 +82,15 @@ for (let i = 0; i < count; i++) {
     'fonts': randomFontSubset(osFonts),
   };
 
-  // Attach complete WebGL profile if available for this GPU
+  // Never ship a renderer/vendor-only identity. Camoufox requires the complete
+  // WebGL profile to keep getParameter() consistent with the claimed GPU.
   const webglProfile = findWebGLProfile(fingerprintConfig['webGl:renderer']);
   if (webglProfile) {
     const { match, ...webglData } = webglProfile;
     Object.assign(fingerprintConfig, webglData);
+  } else {
+    delete fingerprintConfig['webGl:renderer'];
+    delete fingerprintConfig['webGl:vendor'];
   }
 
   fingerprints.push(fingerprintConfig);
