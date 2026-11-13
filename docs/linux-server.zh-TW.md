@@ -17,10 +17,10 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v1.10.7
+  ghcr.io/nczz/browseforge:v1.10.8
 ```
 
-正式部署建議 pin 版本 tag，例如 `v1.10.7`。`latest` 可用於快速試用，但重啟或重新拉取時可能非預期升級。
+正式部署建議 pin 版本 tag，例如 `v1.10.8`。`latest` 可用於快速試用，但重啟或重新拉取時可能非預期升級。
 
 > 目前 GHCR Docker image 發佈 `linux/amd64`。Apple Silicon 或 ARM server 會透過 emulation 執行；原生 `linux/arm64` image 會在 KasmVNC、Camoufox、CloakBrowser runtime 都驗證完成後再開啟。
 
@@ -70,7 +70,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v1.10.7
+  ghcr.io/nczz/browseforge:v1.10.8
 ```
 
 持久化路徑：
@@ -90,7 +90,7 @@ Docker named volumes 也能持久化，但 host bind mounts 比較容易檢查�
 ```yaml
 services:
   browseforge:
-    image: ghcr.io/nczz/browseforge:v1.10.7
+    image: ghcr.io/nczz/browseforge:v1.10.8
     platform: linux/amd64
     ports:
       - "19280:19280"
@@ -135,7 +135,7 @@ ssh -L 19280:localhost:19280 -L 6901:localhost:6901 user@server
 ## 升級
 
 ```bash
-docker pull ghcr.io/nczz/browseforge:v1.10.7
+docker pull ghcr.io/nczz/browseforge:v1.10.8
 docker stop browseforge
 docker rm browseforge
 docker run -d --name browseforge \
@@ -148,7 +148,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v1.10.7
+  ghcr.io/nczz/browseforge:v1.10.8
 ```
 
 Profiles、Token、下載的 browser engines、logs 都保留在 host 的 `./browseforge/` 目錄。Pull 新 image 並重建容器時，必須沿用同一組 bind mounts。
