@@ -185,7 +185,7 @@ Session response 會包含唯一的 `launch_id`、建立時間與 endpoint healt
 
 #### GET /api/diagnostics/sessions — Session lifecycle 診斷
 
-依新到舊回傳 endpoint retry、browser disconnect、Playwright restart 與明確 cleanup reason。需要 Bearer token；可使用 `session_id`、`launch_id`、`profile_id` 與 `limit` 篩選。
+依新到舊回傳 endpoint retry、browser disconnect、Playwright restart 與明確 cleanup reason。可辨識的近期 CloakBrowser runtime failure 會附上分類；`WINDOWS_COMMIT_LIMIT` 表示 Windows 因分頁檔太小而無法載入 Chrome DLL。需要 Bearer token；可使用 `session_id`、`launch_id`、`profile_id` 與 `limit` 篩選。
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \

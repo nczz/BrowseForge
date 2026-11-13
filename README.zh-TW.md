@@ -225,7 +225,7 @@ Agent 與 CI 整合建議對 `token`、`doctor`、`capabilities`、`smoke` 使�
 | `cloakbrowser.extra_args` | 額外 CloakBrowser/Chromium args；BrowseForge 會忽略會覆蓋 profile、proxy、cache 或 debugging ownership 的 args | `[]` |
 | `fingerprint_dir` | 指紋池 JSON 目錄 | `data` |
 
-Endpoint health check 預設只測試 connect。BrowseForge 會在 Bind grace 前後各驗證一次 manager 持有的 browser，再對同一個 Bind endpoint 重試後才決定是否關閉 child process；browser disconnect 與 cleanup reason 會記錄於需驗證的 `GET /api/diagnostics/sessions`。Child 在 grace 期間退出時會回傳結構化 `BROWSER_PROCESS_EXITED`，讓 consumer 可輪替不相容的 profile metadata，而不是取得已失效 endpoint。Server 重啟後仍以持久化 JSON log 為準。
+Endpoint health check 預設只測試 connect。BrowseForge 會在 Bind grace 前後各驗證一次 manager 持有的 browser，再對同一個 Bind endpoint 重試後才決定是否關閉 child process；browser disconnect 與 cleanup reason 會記錄於需驗證的 `GET /api/diagnostics/sessions`。Child 在 grace 期間退出時會回傳結構化 `BROWSER_PROCESS_EXITED`，讓 consumer 可輪替不相容的 profile metadata，而不是取得已失效 endpoint。已啟動的 CloakBrowser 後續斷線時，BrowseForge 只檢查該次 launch 後新增的 runtime diagnostics；Windows 分頁檔不足會回報為 `WINDOWS_COMMIT_LIMIT`。Server 重啟後仍以持久化 JSON log 為準。
 
 `cloakbrowser` 區塊是主機 runtime policy，不是 profile identity。它只影響 Chromium/CloakBrowser 啟動；Firefox/Camoufox profile 不會讀取這些設定。若 Windows VM 環境出現 `GPU process isn't usable` 或 `Unable to create cache` 這類 Chromium 啟動錯誤，可使用：
 

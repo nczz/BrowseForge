@@ -288,7 +288,7 @@ Session responses include a unique `launch_id`, creation time, and endpoint heal
 
 ### GET `/api/diagnostics/sessions`
 
-Returns newest-first in-memory lifecycle events, including endpoint retries, browser disconnects, Playwright restarts, and explicit cleanup reasons. Requires authentication. Optional filters: `session_id`, `launch_id`, `profile_id`, and `limit`.
+Returns newest-first in-memory lifecycle events, including endpoint retries, browser disconnects, Playwright restarts, and explicit cleanup reasons. Recent CloakBrowser runtime failures are classified when possible; `WINDOWS_COMMIT_LIMIT` means Windows could not load the Chrome DLL because the paging file was too small. Requires authentication. Optional filters: `session_id`, `launch_id`, `profile_id`, and `limit`.
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \

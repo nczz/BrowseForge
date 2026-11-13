@@ -4,6 +4,12 @@ All notable changes should be documented here. This project follows semantic ver
 
 ## Unreleased
 
+## v1.10.8 - 2026-11-13
+
+### Added
+
+- Classify recent CloakBrowser `debug.log` failures when a browser disconnects. Windows commit-limit failures now appear in lifecycle events and JSON logs as `WINDOWS_COMMIT_LIMIT` instead of an unqualified disconnect.
+
 ## v1.10.7 - 2026-11-13
 
 ### Fixed
