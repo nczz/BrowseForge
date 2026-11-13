@@ -229,6 +229,11 @@ func (m *Manager) observeBrowserLifecycle(session *Session) {
 		return
 	}
 	launchedBrowser.OnDisconnected(func(playwright.Browser) {
+		if diagnostic, ok := recentChromiumRuntimeDiagnostic(session.ExecutablePath, session.CreatedAt); ok {
+			m.recordSessionEventLocked(session, "browser_disconnected", sessionEventDetails{code: diagnostic.Code, message: diagnostic.Message})
+			slog.Warn("session browser disconnected", "session", session.ID, "launch_id", session.LaunchID, "profile", session.ProfileID, "runtime_id", session.RuntimeID, "connectURL", session.ConnectURL, "code", diagnostic.Code, "runtimeDiagnostic", diagnostic.Message)
+			return
+		}
 		m.recordSessionEventLocked(session, "browser_disconnected", sessionEventDetails{message: "browser process closed or Playwright disconnected"})
 		slog.Warn("session browser disconnected", "session", session.ID, "launch_id", session.LaunchID, "profile", session.ProfileID, "runtime_id", session.RuntimeID, "connectURL", session.ConnectURL)
 	})
