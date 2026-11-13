@@ -132,6 +132,7 @@ func TestEndpointHealthErrorClassification(t *testing.T) {
 		{errors.New("browserType.connect: Timeout 30000ms exceeded"), "BROWSER_CONNECT_TIMEOUT"},
 		{errors.New("TargetClosedException: Process exited"), "BROWSER_PROCESS_EXITED"},
 		{errors.New("Target page, context or browser has been closed"), "BROWSER_PROCESS_EXITED"},
+		{errors.New("verify bound browser: browser is disconnected"), "BROWSER_PROCESS_EXITED"},
 		{errors.New("websocket: bad handshake"), "ENDPOINT_UNHEALTHY"},
 	}
 	for _, tc := range cases {
@@ -183,6 +184,40 @@ func TestValidateSessionEndpointRetriesSameChildBeforeSuccess(t *testing.T) {
 	}
 	if events[0].Event != "endpoint_healthy" || events[1].Event != "endpoint_health_started" || events[2].Event != "endpoint_health_failed" {
 		t.Fatalf("events newest first = %#v", events)
+	}
+}
+
+func TestValidateSessionEndpointRejectsDisconnectDuringBindGrace(t *testing.T) {
+	checks := 0
+	m := &Manager{
+		endpointHealthPolicy: endpointHealthPolicy(2500, 1, 1, 10, false, 32),
+		endpointHealthCheck: func(string, float64, bool) error {
+			checks++
+			if checks == 1 {
+				return nil
+			}
+			return errors.New("verify bound browser: browser is disconnected")
+		},
+	}
+	p := &profile.Profile{ID: "prof_unstable", RuntimeID: string(bfruntime.CloakBrowser)}
+	s := &Session{
+		ID:              "sess_prof_unstable",
+		LaunchID:        "launch-unstable",
+		ProfileID:       p.ID,
+		RuntimeID:       p.RuntimeID,
+		ConnectURL:      "ws://127.0.0.1:12345/unstable",
+		EndpointBoundAt: time.Now(),
+	}
+
+	err := m.validateSessionEndpoint(p, s, "launch")
+	if err == nil {
+		t.Fatal("validateSessionEndpoint succeeded after browser disconnected during bind grace")
+	}
+	if got := ErrorCode(err); got != "BROWSER_PROCESS_EXITED" {
+		t.Fatalf("ErrorCode = %q, want BROWSER_PROCESS_EXITED; err=%v", got, err)
+	}
+	if checks != 2 {
+		t.Fatalf("checks = %d, want initial and post-grace checks", checks)
 	}
 }
 
@@ -338,6 +373,7 @@ func TestRepairTransientChromiumDataPreservesProfileState(t *testing.T) {
 		filepath.Join("Default", "GPUCache", "gpu.bin"),
 		filepath.Join("BrowseForgeRuntimeCache", "cache-1", "data.bin"),
 		"ShaderCache",
+		filepath.Join("BrowserMetrics", "BrowserMetrics-old.pma"),
 		"GrShaderCache",
 		"component_crx_cache",
 	}

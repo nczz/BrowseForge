@@ -4,6 +4,13 @@ All notable changes should be documented here. This project follows semantic ver
 
 ## Unreleased
 
+## v2.1.19 - 2026-11-13
+
+### Fixed
+
+- Verify the manager-owned browser both before and after the Bind grace window, so a runtime child that exits during endpoint handoff is rejected with `BROWSER_PROCESS_EXITED` instead of exposing a dead session.
+- Repair rebuildable Chromium profile data, including root `BrowserMetrics`, after endpoint-stability failures while preserving cookies, local storage, and preferences. Consumers can use the structured failure to rotate profile metadata when cache repair is insufficient.
+
 ## v2.1.18 - 2026-11-12
 
 ### Added

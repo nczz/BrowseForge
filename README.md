@@ -91,7 +91,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v2.1.18
+  ghcr.io/nczz/browseforge:v2.1.19
 ```
 
 The `./browseforge/` host directory is the durable runtime. Reusing these mounts when pulling a new image or recreating the container preserves profiles, tokens, browser data, logs, and backups.
@@ -253,7 +253,7 @@ BrowseForge creates `config.json` on first launch:
 | `endpoint_health.timeout_ms` | Timeout for Playwright proxy backend connect and handshake operations; capped at 120000 | `15000` |
 | `endpoint_health.attempts` | Non-consuming connectivity checks against the same runtime child before cleanup/relaunch; capped at 5 | `2` |
 | `endpoint_health.retry_delay_ms` | Delay between endpoint checks; capped at 30000 | `500` |
-| `endpoint_health.bind_grace_ms` | Minimum Bind endpoint age before the proxy or MCP attaches; capped at 5000 | `100` |
+| `endpoint_health.bind_grace_ms` | Stability window after Bind: the manager verifies the browser before and after the grace, and the proxy or MCP waits for it to elapse before attaching; capped at 5000 | `100` |
 | `endpoint_health.probe_page` | Also read the existing session page title. No extra page or client connection is created. | `false` |
 | `endpoint_health.history_limit` | In-memory session lifecycle events exposed by the diagnostics API; capped at 2000 | `256` |
 | `default_runtime_id` | Default runtime selected by generated config and UI flows | `camoufox` |
@@ -265,7 +265,7 @@ BrowseForge creates `config.json` on first launch:
 | `runtimes.cloakbrowser.settings.safe_gpu` | Add Chromium GPU-safe launch flags for Windows VM/headful compatibility | `false` |
 | `runtimes.cloakbrowser.settings.auto_safe_gpu_fallback` | Keep the first launch unchanged, then retry once with safe GPU and isolated runtime cache only after a GPU/cache launch failure | `false` |
 | `runtimes.cloakbrowser.settings.isolated_runtime_cache` | Use a per-launch Chromium disk cache directory under the profile runtime cache | `false` |
-| `runtimes.cloakbrowser.settings.repair_transient_cache_on_launch_failure` | Remove rebuildable Chromium cache directories after GPU/cache launch failures before the automatic retry | `false` |
+| `runtimes.cloakbrowser.settings.repair_transient_cache_on_launch_failure` | Remove rebuildable Chromium cache directories, including root `BrowserMetrics`, after GPU/cache or endpoint-stability failures before the automatic retry | `false` |
 | `runtimes.cloakbrowser.settings.fingerprint_platform` | CloakBrowser fingerprint platform flag: `auto`, `macos`, `windows`, or `linux`; `auto` follows CloakBrowser wrapper defaults (`macos` on macOS, `windows` elsewhere) | `auto` |
 | `runtimes.cloakbrowser.settings.fonts_dir` | Optional directory passed as `--fingerprint-fonts-dir`; use a target-platform font pack to improve font/canvas consistency | empty |
 | `runtimes.cloakbrowser.settings.storage_quota_mb` | Optional `--fingerprint-storage-quota` override in MB; higher values can satisfy BrowserScan non-incognito checks but may trade off against FingerprintJS | `0` |
@@ -273,7 +273,7 @@ BrowseForge creates `config.json` on first launch:
 | `runtimes.cloakbrowser.settings.extra_args` | Additional CloakBrowser/Chromium args. BrowseForge ignores args that would override profile, proxy, cache, or debugging ownership. | `[]` |
 | `fingerprint_dir` | Fingerprint JSON directory | `data` |
 
-Endpoint health checks are connect-only by default. BrowseForge retries the same Bind endpoint before closing the runtime child, records browser disconnect and cleanup reasons, and exposes newest lifecycle events at authenticated `GET /api/diagnostics/sessions`. Persistent JSON logs remain the source across server restarts.
+Endpoint health checks are connect-only by default. BrowseForge verifies the manager-owned browser before and after the Bind grace window, retries the same Bind endpoint before closing the runtime child, records browser disconnect and cleanup reasons, and exposes newest lifecycle events at authenticated `GET /api/diagnostics/sessions`. A runtime child that exits during the grace returns a structured `BROWSER_PROCESS_EXITED` error so consumers can rotate incompatible profile metadata without receiving a dead endpoint. Persistent JSON logs remain the source across server restarts.
 
 The `runtimes.cloakbrowser.settings` block separates VM/runtime stability knobs from auditable fingerprint knobs. `safe_gpu`, `auto_safe_gpu_fallback`, `isolated_runtime_cache`, and `repair_transient_cache_on_launch_failure` are launch-stability policy. `fingerprint_platform`, `fonts_dir`, and `storage_quota_mb` are explicit CloakBrowser identity inputs instead of hidden `extra_args`. The block only affects the `cloakbrowser` runtime; `camoufox` profiles do not read these settings. For Windows VM environments where Chromium exits with GPU/cache errors such as `GPU process isn't usable` or `Unable to create cache`, use:
 
