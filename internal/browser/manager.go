@@ -129,6 +129,19 @@ func (m *Manager) LaunchSession(p *profile.Profile) (*Session, error) {
 			m.recordSessionEventLocked(session, "session_launch_failed", sessionEventDetails{attempt: attempt, code: ErrorCode(err), message: err.Error()})
 			m.closeSessionResources(session, "failed launch attempt")
 		}
+		if session != nil &&
+			session.Engine == "chromium" &&
+			m.cfg.CloakBrowser != nil &&
+			m.cfg.CloakBrowser.RepairTransientCacheOnLaunchFailure &&
+			isEndpointStabilityFailure(err) {
+			m.recordSessionEventLocked(session, "profile_transient_cache_repaired", sessionEventDetails{
+				code:    ErrorCode(err),
+				reason:  "endpoint stability failure",
+				message: err.Error(),
+			})
+			slog.Warn("repairing transient chromium profile data after endpoint stability failure", "profile", p.ID, "userDataDir", session.UserDataDir, "code", ErrorCode(err), "error", err)
+			repairTransientChromiumData(session.UserDataDir)
+		}
 		if attempt == 1 && shouldRetryLaunchAttempt(err) {
 			slog.Warn("browser launch endpoint failed; restarting Playwright and retrying", "profile", p.ID, "engine", p.Engine, "attempt", attempt, "code", ErrorCode(err), "error", err)
 			if session != nil {
@@ -235,7 +248,7 @@ func (m *Manager) validateSessionEndpoint(p *profile.Profile, session *Session, 
 		started := time.Now()
 		session.HealthAttempts = attempt
 		m.recordSessionEventLocked(session, "endpoint_health_started", sessionEventDetails{stage: stage, attempt: attempt})
-		err := m.checkEndpointHealth(session, float64(policy.TimeoutMS), policy.ProbePage)
+		err := m.checkEndpointHealthThroughBindGrace(session, float64(policy.TimeoutMS), policy.ProbePage)
 		durationMS := time.Since(started).Milliseconds()
 		session.LastHealthAt = time.Now().UTC()
 		session.LastHealthLatencyMS = durationMS
@@ -279,6 +292,21 @@ func (m *Manager) checkEndpointHealth(session *Session, timeoutMS float64, probe
 	}
 	if _, err := session.Page.Title(); err != nil {
 		return fmt.Errorf("probe existing page: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) checkEndpointHealthThroughBindGrace(session *Session, timeoutMS float64, probePage bool) error {
+	if err := m.checkEndpointHealth(session, timeoutMS, probePage); err != nil {
+		return err
+	}
+	wait := endpointBindGraceRemaining(session.EndpointBoundAt, m.endpointHealthPolicy.BindGraceMS, time.Now())
+	if wait <= 0 {
+		return nil
+	}
+	time.Sleep(wait)
+	if err := m.checkEndpointHealth(session, timeoutMS, probePage); err != nil {
+		return fmt.Errorf("verify bound browser after %dms bind grace: %w", m.endpointHealthPolicy.BindGraceMS, err)
 	}
 	return nil
 }

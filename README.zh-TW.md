@@ -90,7 +90,7 @@ docker run -d --name browseforge \
   -v "$PWD/browseforge/backups:/app/backups" \
   -e BROWSEFORGE_SEED_BROWSERS=1 \
   --restart unless-stopped \
-  ghcr.io/nczz/browseforge:v1.10.6
+  ghcr.io/nczz/browseforge:v1.10.7
 ```
 
 `./browseforge/` host 目錄就是持久化 runtime。之後 pull 新 image 或重建 container 時沿用這組 mounts，profiles、token、browser data、logs、backups 都會保留。
@@ -213,7 +213,7 @@ Agent 與 CI 整合建議對 `token`、`doctor`、`capabilities`、`smoke` 使�
 | `endpoint_health.timeout_ms` | Playwright proxy backend 連線與 handshake 的 timeout，上限 120000 | `15000` |
 | `endpoint_health.attempts` | 清理或重啟前，對同一個 browser child 執行不建立額外連線的健康檢查次數，上限 5 | `2` |
 | `endpoint_health.retry_delay_ms` | endpoint 檢查之間的等待時間，上限 30000 | `500` |
-| `endpoint_health.bind_grace_ms` | Proxy 或 MCP 連入前，Bind endpoint 必須存在的最短時間，上限 5000 | `100` |
+| `endpoint_health.bind_grace_ms` | Bind 後的穩定視窗：manager 會在 grace 前後各驗證一次 browser，Proxy 或 MCP 也會等 grace 到期後才連入；上限 5000 | `100` |
 | `endpoint_health.probe_page` | 額外讀取既有 session page 的 title；不建立新頁面或 client connection | `false` |
 | `endpoint_health.history_limit` | diagnostics API 保留的記憶體內 session lifecycle events，上限 2000 | `256` |
 | `camoufox_path` | Camoufox 執行檔路徑 | 自動偵測 |
@@ -221,11 +221,11 @@ Agent 與 CI 整合建議對 `token`、`doctor`、`capabilities`、`smoke` 使�
 | `cloakbrowser.safe_gpu` | 為 Windows VM/headful 相容性加入 Chromium GPU-safe 啟動參數 | `false` |
 | `cloakbrowser.auto_safe_gpu_fallback` | 第一次啟動維持原始行為，只在 GPU/cache 啟動失敗後才自動用 safe GPU 與 isolated runtime cache 重試一次 | `false` |
 | `cloakbrowser.isolated_runtime_cache` | 將 Chromium disk cache 導到 profile 底下的每次啟動 runtime cache 目錄 | `false` |
-| `cloakbrowser.repair_transient_cache_on_launch_failure` | GPU/cache 啟動失敗後，在自動重試前清除可重建的 Chromium cache 目錄 | `false` |
+| `cloakbrowser.repair_transient_cache_on_launch_failure` | GPU/cache 或 endpoint 穩定性失敗後，在自動重試前清除包含根目錄 `BrowserMetrics` 的可重建 Chromium cache | `false` |
 | `cloakbrowser.extra_args` | 額外 CloakBrowser/Chromium args；BrowseForge 會忽略會覆蓋 profile、proxy、cache 或 debugging ownership 的 args | `[]` |
 | `fingerprint_dir` | 指紋池 JSON 目錄 | `data` |
 
-Endpoint health check 預設只測試 connect。BrowseForge 會先對同一個 Bind endpoint 重試，再決定是否關閉 child process；browser disconnect 與 cleanup reason 會記錄於需驗證的 `GET /api/diagnostics/sessions`。Server 重啟後仍以持久化 JSON log 為準。
+Endpoint health check 預設只測試 connect。BrowseForge 會在 Bind grace 前後各驗證一次 manager 持有的 browser，再對同一個 Bind endpoint 重試後才決定是否關閉 child process；browser disconnect 與 cleanup reason 會記錄於需驗證的 `GET /api/diagnostics/sessions`。Child 在 grace 期間退出時會回傳結構化 `BROWSER_PROCESS_EXITED`，讓 consumer 可輪替不相容的 profile metadata，而不是取得已失效 endpoint。Server 重啟後仍以持久化 JSON log 為準。
 
 `cloakbrowser` 區塊是主機 runtime policy，不是 profile identity。它只影響 Chromium/CloakBrowser 啟動；Firefox/Camoufox profile 不會讀取這些設定。若 Windows VM 環境出現 `GPU process isn't usable` 或 `Unable to create cache` 這類 Chromium 啟動錯誤，可使用：
 

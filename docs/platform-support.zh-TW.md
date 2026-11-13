@@ -9,7 +9,7 @@
 
 | 元件 | 版本 | 更新日期 |
 |------|------|---------|
-| BrowseForge | v1.10.6 | 2026-11-12 |
+| BrowseForge | v1.10.7 | 2026-11-13 |
 | Camoufox | v135.0.1-beta.24 | 2025-03-15 |
 | CloakBrowser macOS | chromium-v145.0.7632.109.2 | 2026-03-04 |
 | CloakBrowser Linux/Windows | chromium-v146.0.7680.177.4 | 2026-04-28 |

@@ -94,6 +94,15 @@ func shouldRetryLaunchAttempt(err error) bool {
 	}
 }
 
+func isEndpointStabilityFailure(err error) bool {
+	switch ErrorCode(err) {
+	case "BROWSER_PROCESS_EXITED", "ENDPOINT_UNHEALTHY":
+		return true
+	default:
+		return false
+	}
+}
+
 func classifyEndpointHealthError(err error) string {
 	if err == nil {
 		return "ENDPOINT_UNHEALTHY"
@@ -102,7 +111,7 @@ func classifyEndpointHealthError(err error) string {
 	switch {
 	case strings.Contains(msg, "timeout") || strings.Contains(msg, "timed out") || strings.Contains(msg, "deadline exceeded"):
 		return "BROWSER_CONNECT_TIMEOUT"
-	case strings.Contains(msg, "process exited") || strings.Contains(msg, "target closed") || strings.Contains(msg, "browser has been closed"):
+	case strings.Contains(msg, "process exited") || strings.Contains(msg, "target closed") || strings.Contains(msg, "browser has been closed") || strings.Contains(msg, "browser is disconnected"):
 		return "BROWSER_PROCESS_EXITED"
 	default:
 		return "ENDPOINT_UNHEALTHY"
@@ -186,6 +195,7 @@ func repairTransientChromiumData(userDataDir string) {
 		filepath.Join("Default", "Code Cache"),
 		filepath.Join("Default", "GPUCache"),
 		"BrowseForgeRuntimeCache",
+		"BrowserMetrics",
 		"ShaderCache",
 		"GrShaderCache",
 		"component_crx_cache",
